@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# next.js
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# python (modal job + evals)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+.modal.toml
+
+# evals scratch
+evals/.cache/
+evals/results/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
+.DS_Store

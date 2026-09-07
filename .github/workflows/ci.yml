@@ -1,0 +1,24 @@
+# Filled in during Phase 2. Shape, not final syntax.
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test-and-eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # - node + pnpm setup
+      # - run: pnpm install --frozen-lockfile
+      # - run: pnpm test
+      # - python setup
+      # - run: python evals/run_evals.py   # RAGAS fail-under + abstention + cross-version-leak (hard gate)
+
+  claude-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # - uses: anthropics/claude-code-action@v1
+      #   reviews the diff against CLAUDE.md + specs/2026-09-07-verbatim.md
