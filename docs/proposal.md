@@ -22,7 +22,7 @@ Anyone self-registers as a student; approved contributors upload and version man
 |---|---|
 | What is it for? | Real tool for a psych program (small). |
 | Corpus | **Public-domain instruments only** — no licensing blocker, hosted or self-hosted LLM both fine. |
-| Resources | Supabase free tier · GitHub account · a free open-weight LLM API key · **no custom domain** (serve at `<user>.github.io`). |
+| Resources | Supabase free tier · GitHub account · an existing **Groq** API key · **no custom domain** (serve at `<user>.github.io`). |
 | Ask layout | Direction B — reading-first (single column + slide-over source). |
 | Scale | ~tens of users, low-hundreds of questions/day, < ~80 manuals. |
 
@@ -83,7 +83,7 @@ subagents — auth, schema, and the pipeline interlock. One builder end to end, 
 | Server logic | Supabase **Edge Functions**: `/ask` (the pipeline) and `/ingest-dispatch` (Storage webhook → GitHub `repository_dispatch`) |
 | PDF parsing | **Docling** (MIT) in a **GitHub Actions** workflow — no page caps, best table fidelity |
 | Embeddings | **`gte-small`** (384-dim): Supabase built-in model at query time; `thenlper/gte-small` via `sentence-transformers` in the Action at ingest |
-| Answer + verify LLM | **any OpenAI-compatible endpoint** (`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`). Default: a free open-weight API (OpenRouter free / Groq). Fully-OSS deploy: local **Ollama** (`qwen2.5:7b` / `llama3.1:8b`). Structured output via prompt + parse + retry + `zod`, not a vendor feature. |
+| Answer + verify LLM | **any OpenAI-compatible endpoint** (`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`). Using the existing **Groq** key (`llama-3.3-70b-versatile`); swappable to OpenRouter or local **Ollama** for a fully-OSS deploy. Structured output via prompt + parse + retry + `zod`, not a vendor feature. Groq free tier ≈ 15–25 questions/day — add a card / fallback when it outgrows that. |
 | Logging | **`query_log`** table (retrieved chunk ids, answer, verify result, latency) |
 | Observability | Langfuse Cloud free tier — optional, added later if `query_log` isn't enough |
 | Evals | RAGAS + custom abstention & cross-version-leak checks, CI-gated |
