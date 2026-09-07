@@ -33,3 +33,6 @@ evals/results/
 .idea/
 .vscode/
 *.log
+
+# phase 0 scratch: external manual PDFs, re-fetchable from URLs in the notebook
+data/manuals/

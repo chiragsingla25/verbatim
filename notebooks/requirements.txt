@@ -1,0 +1,15 @@
+# Phase 0 MVP notebook (notebooks/mvp.ipynb) — throwaway scratch env, not the app.
+#   python3.11 -m venv .venv && .venv/bin/pip install -r notebooks/requirements.txt
+# Pins are what the Phase 0 checkpoint run on 2026-09-08 used.
+docling==2.126.0
+sentence-transformers==6.0.1   # thenlper/gte-small, 384-dim
+transformers==5.16.1
+torch==2.14.0                  # CPU
+psycopg[binary]==3.3.5
+pgvector==0.5.0
+python-dotenv==1.2.3
+httpx==0.28.1
+pandas==3.0.5
+ipykernel==7.3.0
+jupyter==1.1.1
+nbformat==5.11.1
