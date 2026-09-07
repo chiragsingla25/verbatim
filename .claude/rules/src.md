@@ -1,24 +1,28 @@
-# Conventions for `src/`
+# Conventions for `src/` (SPA) and `supabase/functions/` (Edge Functions)
 
-- **`src/lib/answer/schema.ts` is the single source of truth** for `AnswerResult`, `Citation`, and
-  `VerifyResult`. Anything crossing a module or API boundary is a typed object validated with zod,
-  not a loose dict.
-- **`generate.ts` and `verify.ts` never return unvalidated LLM output.** Request structured output,
-  validate against the schema, on failure retry once, then fail. No falling back to the raw model
-  string.
-- **The retrieval path always goes through `match_chunks`** (the `security invoker` RPC) with the
-  caller's Supabase client. Never query `document_chunks` directly from an API route with the
+- **`supabase/functions/_shared/schema.ts` is the single source of truth** for `AnswerResult`,
+  `Citation`, `VerifyResult`. `src/lib/schema.ts` is a mirror — keep them identical. Anything
+  crossing a boundary is a `zod`-validated object, not a loose dict.
+- **`_shared/llm.ts` never returns unvalidated model output.** Request JSON → `JSON.parse` →
+  extract the first `{…}` block → one retry with a "valid JSON only" nudge → then return an
+  abstention. Validate against the schema. Do not depend on a provider's structured-output feature —
+  the endpoint is swappable (OpenRouter / Groq / local Ollama).
+- **Retrieval only ever goes through `match_chunks`** (the `security invoker` RPC) called with the
+  end user's Supabase client / JWT. Never query `document_chunks` from an Edge Function with the
   service-role client to answer a user question — that bypasses RLS and the version boundary.
-- **Three Supabase clients, kept separate:** `lib/supabase/server.ts` (RLS, user JWT, for API
-  routes and server components), `client.ts` (browser), `service.ts` (service role — ingestion
-  write-back and admin ops only). `service.ts` must never be imported by anything that can reach a
-  client component.
-- **Embeddings must match the Modal job.** `lib/embeddings.ts` and `src/ingest/embeddings.py` use
-  the same model id and dimension (`EMBEDDING_MODEL`, `EMBEDDING_DIM`). Changing one means changing
-  both and re-embedding the corpus.
-- **No secrets at import time; no network calls at import time.** Read env inside functions.
-- Every generated answer either carries ≥1 citation to a chunk in the requested `versionId` or sets
+- **The vector store is Postgres.** `document_chunks.embedding` is `vector(384)` in the same
+  database as everything else. No external vector DB. Similarity is pgvector `<=>` with the HNSW
+  index; access control is the table's RLS policy.
+- **One embedding model, both sides:** `gte-small` (384-dim) — Supabase's built-in model at query
+  time, `thenlper/gte-small` via `sentence-transformers` in the ingestion Action. Changing it means
+  re-embedding the whole corpus.
+- **Three trust levels, kept apart:** the SPA holds only the anon key; Edge Functions hold the LLM
+  key + service-role key via `supabase secrets`; the ingestion Action holds the service-role key
+  via an Actions secret. The service-role key must never reach the SPA bundle.
+- **No secrets or network calls at import time.** Read env inside handlers.
+- Every answer either carries ≥1 citation to a chunk in the requested `versionId` or sets
   `abstained: true`. There is no third state.
-- New Supabase table → write its RLS policy in the same migration. A table with RLS on and no
-  policy is unreadable; that's the intended safe default, not a bug to work around with the service
-  client.
+- New Supabase table → its RLS policy ships in the same migration. RLS-on + no-policy = unreadable;
+  that's the safe default, not something to route around with the service client.
+- **No reranker in v1.** Retrieve `k≈10–12` and pass straight to the answer step. If a reranker is
+  added later it runs client-side or in its own service — never assume PyTorch in an Edge Function.

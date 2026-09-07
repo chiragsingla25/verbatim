@@ -5,50 +5,62 @@ asks questions answered **only** from that version, with page citations — or a
 "not found in this version". Contributors upload and version manuals; anyone self-registers as a
 student. Full scope in `docs/proposal.md`; build contract in `specs/2026-09-07-verbatim.md`.
 
-**Accuracy is the product.** A wrong cutoff score or a blended-edition answer is a failure, not a
-rough edge. Every answer is grounded in retrieved chunks from one version, or it abstains.
+**Accuracy is the goal, not perfection.** A wrong cutoff score or a blended-edition answer is a
+failure; a slow answer or an over-cautious "not found" is acceptable in v1. Every answer is
+grounded in retrieved chunks from one version, or it abstains. Better retrieval / agentic patterns
+come later — v1 is the deterministic baseline.
+
+## Priorities for v1
+
+1. **It works end to end** on free, open-source infrastructure.
+2. **Correctness over speed** — 5–15 s per answer (hosted open model) or 30–90 s (local Ollama on
+   CPU) is fine.
+3. **Purely open-source-capable** — every model and all app code is OSS; the LLM endpoint is one
+   env var away from self-hosted Ollama.
 
 ## Architecture (do not redesign without updating the spec)
 
-RAG, single retriever, wrapped in a deterministic pipeline — **not** an agent:
+RAG, single retriever, deterministic pipeline — **not** an agent:
 
 ```
-query → embed → pgvector search (filtered to one version_id, RLS-enforced)
-      → rerank (hosted cross-encoder) → answer w/ structured citations, or abstain
+query → embed (gte-small, in the Edge Function) → pgvector top-k (k≈10–12, filtered to one
+      version_id, RLS-enforced via match_chunks) → answer w/ structured citations, or abstain
       → verify (2nd LLM call: every claim ↔ a retrieved chunk from the right version)
+      → log to query_log
 ```
 
-- No planner/orchestrator, no ReAct loop, no LangChain/LangGraph. Deferred features live in the
-  spec's out-of-scope section — check it before adding anything.
+- **No reranker in v1** (deferred). No planner/orchestrator, no ReAct loop, no LangChain. Deferred
+  features live in the spec's out-of-scope section — check it before adding anything.
 - **Version isolation is enforced by Postgres RLS**, not an application `WHERE` clause. The
-  retrieval query runs with the caller's JWT. A bug in TS must not be able to leak another
-  version's chunks. This has a dedicated eval (`cross-version-leak`).
-- Structured outputs only where a decision feeds logic: the answer step returns
-  `{ answer, citations: [{chunk_id, page}], abstained }`; verify returns
-  `{ supported, unsupported_claims }`. Never parse free text.
+  `match_chunks` RPC is `security invoker` so it runs under the caller's JWT. A bug in the Edge
+  Function must not be able to leak another version's chunks. Dedicated eval: `cross-version-leak`.
+- **Structured output without a vendor feature:** prompt asks for JSON → `JSON.parse` → extract the
+  first `{…}` → one retry → else treat as abstention. Validate with `zod`. The answer step returns
+  `{ answer, citations: [{chunkId, page, quote}], abstained }`; verify returns
+  `{ supported, unsupportedClaims }`.
 
-## Stack
+## Stack (all OSS models + code; hosting substrate is GitHub + Supabase free tier)
 
-| Layer | Tool |
-|---|---|
-| Frontend + API | Next.js (App Router) on Vercel |
-| DB / auth / storage | Supabase — Postgres + pgvector + Auth + RLS + Storage |
-| PDF parsing | Docling, inside the Modal ingestion job (Python) |
-| Ingestion job | Modal — serverless, triggered by a Supabase Storage webhook |
-| Embeddings | Gemini embedding API — same model on ingest (Python) and query (TS) |
-| Reranker | Hosted cross-encoder (Cohere Rerank or Jina), free tier |
-| Answer + verify LLM | Gemini / Groq (free-tier key), temperature 0, structured output |
-| Evals | RAGAS + custom abstention & cross-version-leak checks, `evals/`, run in CI |
-| Tracing | Langfuse — flagged for pre-launch, not built in v1 |
+| Layer | Tool | Notes |
+|---|---|---|
+| Frontend | Vite + React SPA on **GitHub Pages** (`<user>.github.io/verbatim/`) | set router/bundler base path to `/verbatim/`; list the github.io URL in Supabase Auth redirect URLs |
+| Backend | **Supabase free tier** — Postgres + pgvector + Auth + Storage + Edge Functions (Deno) | software is Apache-2.0 / self-hostable; no lock-in |
+| Server logic | Supabase **Edge Functions** — `/ask` (pipeline) and `/ingest-dispatch` (Storage webhook → GitHub API) | hold the LLM key; ~150 s wall clock is ample for the pipeline |
+| PDF parsing | **Docling** in a **GitHub Actions** workflow | OSS (MIT); no page caps; triggered via `repository_dispatch` from `/ingest-dispatch` |
+| Embeddings | **`gte-small`** (384-dim) — Supabase built-in model at query time; `thenlper/gte-small` via `sentence-transformers` in the Action at ingest | same weights both sides → vectors match; 384-dim keeps DB small |
+| Answer + verify LLM | **any OpenAI-compatible endpoint** via `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`. Default: a free open-weight API (OpenRouter free models or Groq). Fully-OSS deploy: point at local **Ollama** (`qwen2.5:7b` / `llama3.1:8b`) | temperature 0 |
+| Logging | **`query_log`** table (chunk ids, answer, verify result, latency) | the raw material for later eval + agentic work |
+| Observability | Langfuse Cloud free tier — **optional**, add later if the table isn't enough | SDK is MIT; not a v1 dependency |
+| Evals | RAGAS + custom abstention & cross-version-leak checks, `evals/`, run in CI | |
 
 ## Build phases — each is a HARD approval gate
 
-0. `notebooks/mvp.ipynb` — prove parse → chunk → embed → version-filtered retrieval → rerank →
-   cited answer → verify → correct abstention, on real public-domain manuals
-1. Supabase schema + RLS, self-serve signup + `role` claim, Modal ingestion job, contributor
-   upload → parse → review → publish flow
-2. `src/lib/answer/*` — the retrieve → rerank → answer → verify pipeline + eval suite green in CI
-3. UI (reading-first: single column + slide-over source) + deploy
+0. `notebooks/mvp.ipynb` — prove parse → chunk → `gte-small` embed → pgvector version-filtered
+   retrieval → answer w/ citations → verify → correct abstention, on real public-domain manuals
+1. Supabase schema + RLS, self-serve signup + `role` claim, GitHub Actions + Docling ingestion,
+   contributor upload → parse → review → publish flow
+2. `/ask` Edge Function pipeline (retrieve → answer → verify) + `query_log` + eval suite green in CI
+3. SPA UI (reading-first: single column + slide-over source) + deploy to GitHub Pages
 
 Do not start a phase before the previous one is approved. Run a short clarify pass (≤5 questions)
 at the top of each phase.
@@ -57,33 +69,41 @@ at the top of each phase.
 
 | Task | Command |
 |---|---|
-| Dev server | `pnpm dev` |
+| Dev server (SPA) | `pnpm dev` |
+| Edge functions (local) | `supabase functions serve` |
 | Unit tests | `pnpm test` |
 | Eval suite | `python evals/run_evals.py` |
-| Ingestion job (local) | `modal run src/ingest/app.py` |
-| Deploy | push to `main` → Vercel; `modal deploy src/ingest/app.py` for the job |
+| Ingestion (local test) | `python -m ingest.run path/to/manual.pdf` |
+| Deploy SPA | push to `main` → GitHub Pages Action |
+| Deploy edge functions | `supabase functions deploy` |
 
 *(command shapes are intended, not yet wired — confirm exact scripts as they're built)*
 
 ## Environment / setup gotchas
 
-- Node 20+, pnpm. Python 3.11+ for the Modal job and evals.
-- Secrets in `.env.local` (Next.js) / Modal secrets (job) / Supabase dashboard (prod). Never
-  commit a real key. `.env.example` lists the names.
-- **The embedding model must match** between the Modal job and the TS query path — same model id,
-  same dimensions — or retrieval silently degrades.
-- Every generated answer carries a citation to a chunk in the selected version, or sets
-  `abstained: true`. No answer without provenance.
-- RLS is on for every table. A new table without a policy = nobody can read it; that's the safe
-  failure. Write the policy with the table.
+- Node 20+, pnpm. Python 3.11+ for the ingestion job (GitHub Actions) and evals.
+- Secrets: SPA gets only the Supabase URL + anon key (safe — RLS-gated). The LLM key lives in
+  Supabase Edge Function secrets. The GitHub Action uses the Supabase service-role key (Actions
+  secret). `.env.example` lists the names; never commit a real key.
+- **Embedding model must be `gte-small` on both sides** — Supabase's built-in at query time and
+  `thenlper/gte-small` at ingest. Changing it means re-embedding the whole corpus.
+- Every answer either carries ≥1 citation to a chunk in the requested `versionId` or sets
+  `abstained: true`. No third state.
+- New Supabase table → write its RLS policy in the same migration. RLS-on + no-policy = unreadable;
+  that's the safe default, not a bug to route around with the service client.
+- **Supabase free tier pauses a project after 7 days idle.** A scheduled GitHub Action pings a
+  health route every ~3 days to keep it warm.
+- **DB size is the corpus ceiling** — ~5–6 MB per manual (chunk text + 384-dim vectors) → ~80–100
+  manuals on the 500 MB free tier. Supabase Pro ($25/mo) lifts this to thousands.
 
 ## Available resources
 
-- **Supabase account** (free tier) — DB, auth, storage, pgvector.
-- **LLM API key** — Gemini or Groq free tier, for embeddings + answer + verify.
-- **Domain / hosting** — a domain and a Vercel (or equivalent) account on hand.
-- **Local machine** — macOS, no local GPU. All model inference is via hosted APIs or Modal.
-- **Budget** — near-zero. Free tiers only; no paid GPU, no per-query billing beyond free LLM quota.
+- **Supabase account** (free tier) — DB, auth, storage, pgvector, Edge Functions.
+- **GitHub account** — repo, GitHub Pages hosting, GitHub Actions (ingestion + CI).
+- **LLM** — a free open-weight API key (OpenRouter / Groq) for now; swappable to local Ollama.
+- **Local machine** — macOS, no local GPU. No self-hosted GPU inference.
+- **No custom domain** — served at `<user>.github.io/verbatim/`.
+- **Budget** — $0 through the pilot. ~$25/mo (Supabase Pro) once it's a real program tool.
 - No proprietary/org APIs — no MCP server needed.
 
 ## Corpus constraint
@@ -94,7 +114,7 @@ commercial/restricted manuals in v1 — that tier is out of scope.
 
 ## Out of scope for v1
 
-Planner/orchestrator, edition-comparison, score/CI/RCI calculators, quizzes, workspaces, citation
-export, SSO/MFA, PDF sanitisation/malware scan, two-person review, restricted-manual tier,
-instrument catalogue, batch Q&A, client-score entry. See the spec's out-of-scope section before
-adding anything here.
+Reranker · planner/orchestrator · edition-comparison · score/CI/RCI calculators · quizzes ·
+workspaces · citation export · SSO/MFA · PDF sanitisation/malware scan · two-person review ·
+restricted-manual tier · instrument catalogue · batch Q&A · client-score entry · self-hosted
+Langfuse. See the spec's out-of-scope section before adding anything here.
