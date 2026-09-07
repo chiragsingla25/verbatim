@@ -82,9 +82,15 @@ at the top of each phase.
 ## Environment / setup gotchas
 
 - Node 20+, pnpm. Python 3.11+ for the ingestion job (GitHub Actions) and evals.
-- Secrets: SPA gets only the Supabase URL + anon key (safe — RLS-gated). The LLM key lives in
-  Supabase Edge Function secrets. The GitHub Action uses the Supabase service-role key (Actions
-  secret). `.env.example` lists the names; never commit a real key.
+- Secrets — three locations, never a committed file:
+  - **`.env.local`** (SPA): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_APP_BASE` — all public.
+  - **`supabase secrets set`** (Edge Functions): `LLM_BASE_URL` (`https://api.groq.com/openai/v1`),
+    `LLM_API_KEY` (`gsk_…`), `LLM_MODEL` (`llama-3.3-70b-versatile`), `STORAGE_WEBHOOK_SECRET`
+    (`openssl rand -hex 32`), `GITHUB_DISPATCH_TOKEN` (fine-grained PAT, Contents: write),
+    `GITHUB_DISPATCH_REPO` (`<user>/verbatim`). `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` /
+    `SUPABASE_ANON_KEY` are auto-injected.
+  - **GitHub Actions repo secrets**: `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` for `ingest.yml`;
+    `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL` for `ci.yml` (Phase 2 evals).
 - **Embedding model must be `gte-small` on both sides** — Supabase's built-in at query time and
   `thenlper/gte-small` at ingest. Changing it means re-embedding the whole corpus.
 - Every answer either carries ≥1 citation to a chunk in the requested `versionId` or sets
