@@ -48,7 +48,7 @@ query → embed (gte-small, in the Edge Function) → pgvector top-k (k≈10–1
 | Server logic | Supabase **Edge Functions** — `/ask` (pipeline) and `/ingest-dispatch` (Storage webhook → GitHub API) | hold the LLM key; ~150 s wall clock is ample for the pipeline |
 | PDF parsing | **Docling** in a **GitHub Actions** workflow | OSS (MIT); no page caps; triggered via `repository_dispatch` from `/ingest-dispatch` |
 | Embeddings | **`gte-small`** (384-dim) — Supabase built-in model at query time; `thenlper/gte-small` via `sentence-transformers` in the Action at ingest | same weights both sides → vectors match; 384-dim keeps DB small |
-| Answer + verify LLM | **any OpenAI-compatible endpoint** via `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`. Using the existing **Groq** key (`llama-3.3-70b-versatile`). Swappable to OpenRouter, or local **Ollama** for a fully-OSS deploy | temperature 0. Groq free tier ≈ 15–25 questions/day (2 calls each) — add a card or a fallback provider when it outgrows that. |
+| Answer + verify LLM | **any OpenAI-compatible endpoint** via `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`. Using the existing **Groq** key (`openai/gpt-oss-120b`). Swappable to OpenRouter, or local **Ollama** for a fully-OSS deploy | temperature 0. Groq free tier ≈ 15–25 questions/day (2 calls each) — add a card or a fallback provider when it outgrows that. |
 | Logging | **`query_log`** table (chunk ids, answer, verify result, latency) | the raw material for later eval + agentic work |
 | Observability | Langfuse Cloud free tier — **optional**, add later if the table isn't enough | SDK is MIT; not a v1 dependency |
 | Evals | RAGAS + custom abstention & cross-version-leak checks, `evals/`, run in CI | |
@@ -85,7 +85,7 @@ at the top of each phase.
 - Secrets — three locations, never a committed file:
   - **`.env.local`** (SPA): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_APP_BASE` — all public.
   - **`supabase secrets set`** (Edge Functions): `LLM_BASE_URL` (`https://api.groq.com/openai/v1`),
-    `LLM_API_KEY` (`gsk_…`), `LLM_MODEL` (`llama-3.3-70b-versatile`), `STORAGE_WEBHOOK_SECRET`
+    `LLM_API_KEY` (`gsk_…`), `LLM_MODEL` (`openai/gpt-oss-120b`), `STORAGE_WEBHOOK_SECRET`
     (`openssl rand -hex 32`), `GITHUB_DISPATCH_TOKEN` (fine-grained PAT, Contents: write),
     `GITHUB_DISPATCH_REPO` (`<user>/verbatim`). `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` /
     `SUPABASE_ANON_KEY` are auto-injected.
@@ -106,7 +106,7 @@ at the top of each phase.
 
 - **Supabase account** (free tier) — DB, auth, storage, pgvector, Edge Functions.
 - **GitHub account** — repo, GitHub Pages hosting, GitHub Actions (ingestion + CI).
-- **LLM** — existing **Groq** API key (`llama-3.3-70b-versatile`); swappable to OpenRouter or local Ollama.
+- **LLM** — existing **Groq** API key (`openai/gpt-oss-120b`); swappable to OpenRouter or local Ollama.
 - **Local machine** — macOS, no local GPU. No self-hosted GPU inference.
 - **No custom domain** — served at `<user>.github.io/verbatim/`.
 - **Budget** — $0 through the pilot. ~$25/mo (Supabase Pro) once it's a real program tool.
