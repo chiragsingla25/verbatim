@@ -7,13 +7,26 @@
 
 export type ChatFn = (system: string, user: string) => Promise<string>
 
+// Thrown when the LLM endpoint is out of quota (Groq TPD/RPD or an unreasonably long
+// retry-after). The /ask handler turns this into a 503, not a hung worker.
+export class LlmQuotaError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'LlmQuotaError'
+  }
+}
+
 export async function llmChat(system: string, user: string): Promise<string> {
   const base = Deno.env.get('LLM_BASE_URL')?.replace(/\/$/, '')
   const key = Deno.env.get('LLM_API_KEY')
   const model = Deno.env.get('LLM_MODEL')
   if (!base || !key || !model) throw new Error('LLM_BASE_URL / LLM_API_KEY / LLM_MODEL not set')
 
-  for (let attempt = 0; attempt < 4; attempt++) {
+  // Short-lived retries only. A per-minute/burst 429 clears in seconds; a daily-quota 429
+  // (Groq TPD, or retry-after longer than a request has any business waiting) is terminal —
+  // fail fast with a clear message rather than sleeping the worker to death.
+  const MAX_BACKOFF_S = 20
+  for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
@@ -26,10 +39,19 @@ export async function llmChat(system: string, user: string): Promise<string> {
         ],
       }),
     })
-    if (res.status === 429 && attempt < 3) {
-      const retryAfter = Number(res.headers.get('retry-after')) || Math.min(2 ** attempt * 5, 30)
-      await new Promise((r) => setTimeout(r, retryAfter * 1000))
-      continue
+    if (res.status === 429) {
+      const body = (await res.text()).slice(0, 500)
+      const retryAfter = Number(res.headers.get('retry-after'))
+      const isDaily = /per day|TPD|tokens per day|requests per day|RPD/i.test(body)
+      if (isDaily || retryAfter > MAX_BACKOFF_S) {
+        throw new LlmQuotaError(`LLM daily quota exhausted: ${body}`)
+      }
+      if (attempt < 2) {
+        const wait = retryAfter > 0 ? retryAfter : Math.min(2 ** attempt * 5, MAX_BACKOFF_S)
+        await new Promise((r) => setTimeout(r, wait * 1000))
+        continue
+      }
+      throw new LlmQuotaError(`LLM rate-limited (retries exhausted): ${body}`)
     }
     if (!res.ok) {
       throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`)
@@ -39,7 +61,7 @@ export async function llmChat(system: string, user: string): Promise<string> {
     if (typeof content !== 'string') throw new Error('LLM response has no message content')
     return content
   }
-  throw new Error('LLM: exhausted 429 retries')
+  throw new Error('LLM: unreachable')
 }
 
 // Extract the first balanced {…} object from arbitrary model text (handles reasoning
@@ -76,16 +98,20 @@ export async function chatJson<T>(
   user: string,
   validate: (o: unknown) => T | null,
 ): Promise<T | null> {
+  // A null return means "the model gave unparseable output" -> the pipeline abstains.
+  // An LlmQuotaError is an outage, not an abstention — let it propagate to a 503.
   try {
     const parsed = validate(firstJsonObject(await chat(system, user)))
     if (parsed !== null) return parsed
-  } catch {
-    // fall through to the retry
+  } catch (e) {
+    if (e instanceof LlmQuotaError) throw e
+    // otherwise fall through to the retry
   }
   try {
     const raw = await chat(system, `${user}\n\nReturn VALID JSON only. No prose, no code fences.`)
     return validate(firstJsonObject(raw))
-  } catch {
+  } catch (e) {
+    if (e instanceof LlmQuotaError) throw e
     return null
   }
 }

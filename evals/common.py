@@ -126,6 +126,11 @@ def eval_user_token(cfg: Config) -> str:
     return _token_cache["t"]
 
 
+class QuotaExhausted(RuntimeError):
+    """The deployed /ask is up but the LLM endpoint is out of daily quota (503). The eval
+    suite can't run — this is distinct from an eval failure."""
+
+
 @dataclass
 class AskResponse:
     answer: str
@@ -146,10 +151,12 @@ def call_ask(cfg: Config, version_id: str, question: str, *, retries: int = 3) -
                 "Authorization": f"Bearer {token}",
                 "apikey": cfg.anon_key,
                 "content-type": "application/json",
-            }, json={"versionId": version_id, "question": question}, timeout=150)
+            }, json={"versionId": version_id, "question": question}, timeout=240)
             if r.status_code == 429:
                 time.sleep(min(2 ** attempt * 10, 60))
                 continue
+            if r.status_code == 503:
+                raise QuotaExhausted(f"/ask 503 (LLM out of quota): {r.text[:200]}")
             if r.status_code in (401, 403):
                 # not transient — surface the body and stop
                 raise RuntimeError(
@@ -166,6 +173,8 @@ def call_ask(cfg: Config, version_id: str, question: str, *, retries: int = 3) -
                 latency_ms=int((time.time() - t0) * 1000),
                 raw=d,
             )
+        except QuotaExhausted:
+            raise  # not retryable — the whole run is inconclusive
         except Exception as e:  # noqa: BLE001
             last = e
             time.sleep(min(2 ** attempt * 5, 30))

@@ -3,7 +3,7 @@
 // Needs LLM_BASE_URL / LLM_API_KEY / LLM_MODEL via `supabase secrets`. SUPABASE_URL /
 // SUPABASE_ANON_KEY are auto-injected. Embeddings use the built-in gte-small session.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { llmChat } from '../_shared/llm.ts'
+import { LlmQuotaError, llmChat } from '../_shared/llm.ts'
 import type { RetrievedChunk } from '../_shared/prompt.ts'
 import { ask, type QueryLogRow } from './pipeline.ts'
 
@@ -90,6 +90,10 @@ Deno.serve(async (req) => {
     )
     return json(200, result)
   } catch (e) {
+    if (e instanceof LlmQuotaError) {
+      console.warn('LLM quota:', e.message)
+      return json(503, { error: 'answer service is temporarily out of capacity, try again later' })
+    }
     console.error('ask pipeline error:', e instanceof Error ? e.stack : e)
     return json(502, { error: 'answer pipeline failed', detail: e instanceof Error ? e.message : String(e) })
   }

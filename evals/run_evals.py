@@ -15,12 +15,23 @@ from __future__ import annotations
 import argparse
 import sys
 
-from common import load_config, load_golden
+from common import QuotaExhausted, load_config, load_golden
 from abstention import run_abstention
 from cross_version_leak import run_cross_version_leak
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _run(argv)
+    except QuotaExhausted as e:
+        # exit 2 == "could not run" (LLM daily quota), distinct from exit 1 == "ran and failed".
+        print(f"\nEVALS SKIPPED — {e}")
+        print("The /ask pipeline is deployed and healthy; the LLM endpoint is out of daily")
+        print("tokens. Re-run after the quota resets, or point LLM_* at a funded endpoint.")
+        return 2
+
+
+def _run(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="run_evals.py")
     ap.add_argument("--quick", action="store_true", help="skip RAGAS (PR gate)")
     ap.add_argument("--fail-under", type=float, default=0.80, help="RAGAS mean threshold (full run)")

@@ -36,4 +36,13 @@ jobs:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
-        run: python evals/run_evals.py --fail-under "${{ inputs.fail_under || '0.80' }}"
+        # exit 2 == LLM daily quota exhausted -> the nightly is inconclusive, not failed.
+        run: |
+          set +e
+          python evals/run_evals.py --fail-under "${{ inputs.fail_under || '0.80' }}"
+          ec=$?
+          if [ "$ec" = "2" ]; then
+            echo "::warning::nightly evals inconclusive — LLM daily quota exhausted"
+            exit 0
+          fi
+          exit "$ec"

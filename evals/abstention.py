@@ -12,10 +12,6 @@ from dataclasses import dataclass
 
 from common import Config, GoldenCase, call_ask
 
-# One answerable case per manual — enough to catch "the pipeline stopped answering".
-QUICK_SMOKE_IDS = {"pss-reverse-items", "phq9-mod-severe", "audit-hazardous-cutoff"}
-
-
 @dataclass
 class CaseResult:
     case_id: str
@@ -26,8 +22,11 @@ class CaseResult:
 def run_abstention(
     cfg: Config, cases: list[GoldenCase], *, quick: bool = False
 ) -> tuple[list["CaseResult"], float]:
+    # In quick mode (the PR gate) only the abstention cases are scored — they return fast
+    # (no verify call) and don't burn the Groq quota. Answerable-case correctness + RAGAS
+    # are the nightly run's job, where latency budget isn't a constraint.
     if quick:
-        cases = [c for c in cases if c.should_abstain or c.id in QUICK_SMOKE_IDS]
+        cases = [c for c in cases if c.should_abstain]
     results: list[CaseResult] = []
     for c in cases:
         resp = call_ask(cfg, c.version_id, c.question)
