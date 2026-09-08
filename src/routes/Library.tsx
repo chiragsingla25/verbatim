@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listVisibleVersions, type LibraryVersion } from '../lib/api'
+import { useAuth } from '../lib/auth'
 
-// The manual library. RLS (manual_versions_select_visible) returns status='active' for
-// anyone, plus the caller's own pending uploads — so a contributor sees their in-review
-// versions here with a link back to review. A fresh student sees the empty state.
+// The manual library (Library artboard). RLS returns status='active' for anyone, plus the
+// caller's own pending uploads — a contributor sees their in-review versions with a link
+// back to review; a fresh student sees the empty state.
 export function Library() {
+  const { role } = useAuth()
   const [rows, setRows] = useState<LibraryVersion[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const canUpload = role === 'contributor' || role === 'admin'
 
   useEffect(() => {
     listVisibleVersions()
@@ -17,57 +20,100 @@ export function Library() {
 
   const active = rows?.filter((v) => v.status === 'active') ?? []
   const mine = rows?.filter((v) => v.status !== 'active') ?? []
+  const instruments = new Set(active.map((v) => v.instrument?.slug ?? v.id)).size
 
   return (
-    <main className="wrap">
-      <h1>Manuals</h1>
-      {error && <div className="msg err">{error}</div>}
-      {rows === null && !error && <p style={{ color: 'var(--muted)' }}>Loading…</p>}
+    <>
+      <header className="page-head">
+        <div className="page-head-row">
+          <div>
+            <h1>Manual library</h1>
+            <p className="subtitle">
+              {rows
+                ? `${instruments} instrument${instruments === 1 ? '' : 's'} · ${active.length} version${active.length === 1 ? '' : 's'} indexed · every answer is scoped to one version`
+                : 'Loading…'}
+            </p>
+          </div>
+          {canUpload && (
+            <Link to="/upload">
+              <button>+ Upload manual</button>
+            </Link>
+          )}
+        </div>
+      </header>
 
-      {rows && active.length === 0 && mine.length === 0 && (
-        <p className="empty">
-          No published manuals yet.
-          <br />
-          A contributor needs to upload and publish one.
-        </p>
-      )}
+      <div className="page-body">
+        {error && <div className="msg err">{error}</div>}
 
-      {active.length > 0 && (
-        <ul className="manual-list">
-          {active.map((v) => (
-            <li key={v.id}>
-              <Link to={`/ask/${v.id}`} className="row">
-                <div className="title">{v.instrument?.name ?? 'Unknown instrument'}</div>
-                <div className="meta">
-                  {v.title}
-                  {v.edition ? ` · ${v.edition}` : ''}
+        {rows && active.length === 0 && mine.length === 0 && (
+          <p className="empty">
+            No published manuals yet.
+            <br />
+            A contributor needs to upload and publish one.
+          </p>
+        )}
+
+        {active.length > 0 && (
+          <>
+            <div className="lib-table-head">
+              <span>Instrument &amp; document</span>
+              <span>Edition</span>
+              <span>License</span>
+              <span>Status</span>
+            </div>
+            {active.map((v) => (
+              <Link key={v.id} to={`/ask/${v.id}`} className="lib-row">
+                <span className="r-name">
+                  <span className="r-title">{v.instrument?.name ?? 'Unknown instrument'}</span>
+                  <span className="r-sub">
+                    {v.title}
+                    {v.publisher ? ` · ${v.publisher}` : ''}
+                  </span>
+                </span>
+                <span className="r-cell">
+                  {v.edition ?? '—'}
                   {v.year ? ` · ${v.year}` : ''}
-                  {v.publisher ? ` · ${v.publisher}` : ''}
-                </div>
+                </span>
+                <span>
+                  <span className="pill green">Public domain</span>
+                </span>
+                <span>
+                  <span className="pill green">
+                    <span className="dot" />
+                    Active
+                  </span>
+                </span>
               </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {mine.length > 0 && (
-        <>
-          <h2 style={{ marginTop: '2rem', fontSize: '1.05rem' }}>Your uploads in progress</h2>
-          <ul className="manual-list">
-            {mine.map((v) => (
-              <li key={v.id}>
-                <div className="title">
-                  {v.instrument?.name ?? 'Unknown instrument'}{' '}
-                  <span className="meta" style={{ fontWeight: 400 }}>· {v.status}</span>
-                </div>
-                <div className="meta">
-                  {v.title} · <Link to={`/review/${v.id}`}>review</Link>
-                </div>
-              </li>
             ))}
-          </ul>
-        </>
-      )}
-    </main>
+          </>
+        )}
+
+        {mine.length > 0 && (
+          <>
+            <div className="lib-group-label">Your uploads in progress</div>
+            {mine.map((v) => (
+              <div key={v.id} className="lib-row pending">
+                <span className="r-name">
+                  <span className="r-title">{v.instrument?.name ?? 'Unknown instrument'}</span>
+                  <span className="r-sub">{v.title}</span>
+                </span>
+                <span className="r-cell">
+                  {v.edition ?? '—'}
+                  {v.year ? ` · ${v.year}` : ''}
+                </span>
+                <span>
+                  <span className="pill green">Public domain</span>
+                </span>
+                <span>
+                  <Link to={`/review/${v.id}`} className="r-review">
+                    {v.status} · Review →
+                  </Link>
+                </span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </>
   )
 }

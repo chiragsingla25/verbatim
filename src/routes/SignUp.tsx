@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { AuthShell } from '../components/AuthShell'
 import { supabase } from '../lib/supabase'
 
 // Self-serve signup — anyone becomes a `student` (the handle_new_user trigger sets the
@@ -25,25 +26,25 @@ export function SignUp() {
 
   if (sent) {
     return (
-      <main className="wrap">
-        <h1>Check your email</h1>
+      <AuthShell active="signup">
+        <h2>Check your email</h2>
         <div className="msg ok">
           We sent a confirmation link to <strong>{email}</strong>. Open it to finish creating your
           account, then sign in.
         </div>
-        <p style={{ marginTop: '1.5rem' }}>
+        <p className="af-foot">
           <Link to="/signin">Back to sign in</Link>
         </p>
-      </main>
+      </AuthShell>
     )
   }
 
   return (
-    <main className="wrap">
-      <h1>Create an account</h1>
-      <p style={{ color: 'var(--muted)' }}>
-        Everyone starts as a student — ask questions against a manual version. Contributors
-        (upload &amp; version manuals) are promoted by an admin.
+    <AuthShell active="signup">
+      <h2>Create your account</h2>
+      <p className="af-lead">
+        Everyone starts as a <strong>student</strong> — ask questions against a manual version.
+        Contributors are promoted by an admin.
       </p>
       <form onSubmit={onSubmit}>
         <label htmlFor="email">Email</label>
@@ -52,6 +53,7 @@ export function SignUp() {
           type="email"
           autoComplete="email"
           required
+          placeholder="you@university.edu"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
@@ -70,9 +72,9 @@ export function SignUp() {
           {busy ? 'Creating…' : 'Create account'}
         </button>
       </form>
-      <p style={{ marginTop: '1.25rem' }}>
+      <p className="af-foot">
         Already have an account? <Link to="/signin">Sign in</Link>
       </p>
-    </main>
+    </AuthShell>
   )
 }

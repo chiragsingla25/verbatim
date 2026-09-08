@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import { AuthShell } from '../components/AuthShell'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 
@@ -26,8 +27,11 @@ export function SignIn() {
   }
 
   return (
-    <main className="wrap">
-      <h1>Sign in</h1>
+    <AuthShell active="signin">
+      <h2>Welcome back</h2>
+      <p className="af-lead">
+        New here? Use <strong>Create account</strong> above — you’ll start as a student.
+      </p>
       <form onSubmit={onSubmit}>
         <label htmlFor="email">Email</label>
         <input
@@ -35,6 +39,7 @@ export function SignIn() {
           type="email"
           autoComplete="email"
           required
+          placeholder="you@university.edu"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
@@ -52,9 +57,11 @@ export function SignIn() {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
-      <p style={{ marginTop: '1.25rem' }}>
-        No account? <Link to="/signup">Create one</Link>
+      <p className="af-foot">
+        Anyone can create an account and verify their email to read and ask — new accounts are{' '}
+        <strong>students</strong>, with public-domain manuals only. Contributor access is granted by
+        an administrator.
       </p>
-    </main>
+    </AuthShell>
   )
 }
