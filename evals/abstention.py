@@ -1,16 +1,14 @@
-"""Abstention accuracy: every `shouldAbstain` case must come back `abstained: true`, and
-every answerable case must come back with an answer that contains the expected substrings
-and >=1 citation. Fast — one /ask call per case, no RAGAS.
-
-`quick=True` (the PR gate) runs every abstention case plus a small answerable smoke set,
-to keep the Groq call count low; the full nightly run scores every case.
+"""Abstention accuracy over pre-fetched /ask responses: every `shouldAbstain` case must
+have come back `abstained: true`; every answerable case must have an answer containing the
+expected substrings and >=1 citation. No /ask calls here — run_evals owns those.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from common import Config, GoldenCase, call_ask
+from common import AskResponse, GoldenCase
+
 
 @dataclass
 class CaseResult:
@@ -19,17 +17,14 @@ class CaseResult:
     detail: str
 
 
-def run_abstention(
-    cfg: Config, cases: list[GoldenCase], *, quick: bool = False
-) -> tuple[list["CaseResult"], float]:
-    # In quick mode (the PR gate) only the abstention cases are scored — they return fast
-    # (no verify call) and don't burn the Groq quota. Answerable-case correctness + RAGAS
-    # are the nightly run's job, where latency budget isn't a constraint.
-    if quick:
-        cases = [c for c in cases if c.should_abstain]
+def score_abstention(
+    cases: list[GoldenCase], responses: dict[str, AskResponse]
+) -> tuple[list[CaseResult], float]:
     results: list[CaseResult] = []
     for c in cases:
-        resp = call_ask(cfg, c.version_id, c.question)
+        resp = responses.get(c.id)
+        if resp is None:
+            continue  # not scored this run (e.g. --quick skips answerable cases)
         if c.should_abstain:
             ok = resp.abstained is True and len(resp.citations) == 0
             detail = "abstained" if ok else f"expected abstention, got: {resp.answer[:120]!r}"

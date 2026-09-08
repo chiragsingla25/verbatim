@@ -1,19 +1,17 @@
-"""RAGAS metrics for the answerable golden cases — nightly only (heavy deps + many LLM
-calls). Uses the same OpenAI-compatible endpoint as the app (Groq now) as the judge LLM.
+"""RAGAS over the pre-fetched /ask responses for the answerable golden cases — nightly only
+(heavy deps). No /ask calls here; run_evals owns those. Uses the same OpenAI-compatible
+endpoint as the app (OpenRouter) as the judge LLM.
 
-Metrics kept deliberately small to stay inside free-tier rate limits:
-  - faithfulness             : is every claim in the answer grounded in the retrieved chunks?
-  - context precision (no-ref): are the retrieved chunks actually relevant to the question?
-
-answer_relevancy is skipped (needs an embeddings model + extra calls); the abstention /
-expected-substring checks in abstention.py already cover "did it answer the right thing".
+Metrics kept small to limit judge calls:
+  - faithfulness              : is every claim in the answer grounded in the retrieved context?
+  - LLMContextPrecisionWithoutReference : are the retrieved chunks relevant to the question?
 """
 
 from __future__ import annotations
 
 import os
 
-from common import Config, GoldenCase, call_ask
+from common import AskResponse, GoldenCase
 
 
 def _judge_llm():
@@ -30,29 +28,31 @@ def _judge_llm():
     ))
 
 
-def run_ragas(cfg: Config, cases: list[GoldenCase]) -> dict[str, float]:
+def _contexts(resp: AskResponse) -> list[str]:
+    # The pipeline returns citation quotes, not full chunks — enough signal for
+    # faithfulness / precision. Fall back to a placeholder so RAGAS can still score.
+    quotes = [c.get("quote", "") for c in resp.citations if c.get("quote")]
+    return quotes or ["(no context returned)"]
+
+
+def run_ragas(cases: list[GoldenCase], responses: dict[str, AskResponse]) -> dict[str, float]:
     from ragas import EvaluationDataset, evaluate
     from ragas.metrics import Faithfulness, LLMContextPrecisionWithoutReference
 
-    answerable = [c for c in cases if not c.should_abstain]
     samples = []
-    for c in answerable:
-        resp = call_ask(cfg, c.version_id, c.question)
-        if resp.abstained:
-            # a wrongly-abstained answerable case: RAGAS can't score an empty answer;
-            # record it as a 0 by injecting a stub the metrics will fail.
-            samples.append({
-                "user_input": c.question,
-                "response": "(abstained)",
-                "retrieved_contexts": [x.get("quote", "") for x in resp.citations] or ["(none)"],
-            })
+    for c in cases:
+        if c.should_abstain:
             continue
-        contexts = _contexts_for(cfg, c, resp)
+        resp = responses.get(c.id)
+        if resp is None:
+            continue
         samples.append({
             "user_input": c.question,
-            "response": resp.answer,
-            "retrieved_contexts": contexts,
+            "response": resp.answer if not resp.abstained else "(abstained)",
+            "retrieved_contexts": _contexts(resp),
         })
+    if not samples:
+        return {}
 
     dataset = EvaluationDataset.from_list(samples)
     llm = _judge_llm()
@@ -70,10 +70,3 @@ def run_ragas(cfg: Config, cases: list[GoldenCase]) -> dict[str, float]:
         if len(series):
             scores[col] = float(series.mean())
     return scores
-
-
-def _contexts_for(cfg: Config, c: GoldenCase, resp) -> list[str]:
-    # The pipeline returns citation quotes, not full chunks. For faithfulness/precision that
-    # is enough signal; fall back to the quote list.
-    quotes = [x.get("quote", "") for x in resp.citations if x.get("quote")]
-    return quotes or ["(no context returned)"]

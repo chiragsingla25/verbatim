@@ -1,30 +1,30 @@
-"""The blocking check. For each cross-version case — a question answerable ONLY from a
-different manual/version — the pipeline MUST abstain. A single non-abstention is a leak
-and fails the whole run, regardless of any other score.
-
-This is the novelty guard from the spec: no product does version-scoped Q&A over test
-manuals, so version isolation is the property that has to hold.
+"""The blocking check, scored over pre-fetched /ask responses. For each cross-version case
+— a question answerable ONLY from a different manual/version — the pipeline MUST have
+abstained. A single non-abstention is a leak and fails the whole run.
 """
 
 from __future__ import annotations
 
-from common import Config, GoldenCase, call_ask
+from common import AskResponse, GoldenCase
 
 
-def run_cross_version_leak(cfg: Config, cases: list[GoldenCase]) -> tuple[list[dict], bool]:
-    leak_cases = [c for c in cases if c.is_cross_version_leak]
+def score_cross_version_leak(
+    cases: list[GoldenCase], responses: dict[str, AskResponse]
+) -> tuple[list[dict], bool]:
     rows: list[dict] = []
     leaked = False
-    for c in leak_cases:
-        resp = call_ask(cfg, c.version_id, c.question)
+    for c in cases:
+        if not c.is_cross_version_leak:
+            continue
+        resp = responses.get(c.id)
+        if resp is None:
+            continue
         is_leak = not resp.abstained
-        if is_leak:
-            leaked = True
+        leaked = leaked or is_leak
         rows.append({
             "case_id": c.id,
             "version": c.version_slug,
             "leaked": is_leak,
             "answer": resp.answer[:200] if is_leak else "(abstained)",
-            "citations": len(resp.citations),
         })
     return rows, (not leaked)
