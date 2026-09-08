@@ -1,0 +1,53 @@
+name: deploy
+
+# Build the SPA and publish to GitHub Pages after ci.yml passes on main.
+# One-time setup: repo Settings -> Pages -> Source: "GitHub Actions".
+# Required repo secrets: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_APP_BASE (/verbatim/).
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    # only when the ci run succeeded (or when dispatched manually)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_APP_BASE: ${{ secrets.VITE_APP_BASE }}
+        run: |
+          pnpm build
+          cp dist/index.html dist/404.html   # SPA deep-link fallback for Pages
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deploy
+        uses: actions/deploy-pages@v4
