@@ -21,6 +21,11 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        # -f: non-2xx fails the step (and the job), which surfaces a paused/unhealthy project.
+        # Touch PostgREST (hits Postgres, which is what the 7-day pause is about).
+        # -f: non-2xx fails the job, surfacing a paused/unhealthy project. PostgREST wants
+        # both the apikey and a bearer token.
         run: |
-          curl -fsS "$SUPABASE_URL/rest/v1/" -H "apikey: $SUPABASE_ANON_KEY" -o /dev/null
+          curl -fsS "$SUPABASE_URL/rest/v1/instruments?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -o /dev/null
