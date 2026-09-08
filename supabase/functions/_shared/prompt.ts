@@ -43,11 +43,17 @@ export const VERIFY_SYSTEM = [
   `  possible. If nothing supported remains, revisedAnswer must be exactly "${ABSTAIN_MESSAGE}".`,
 ].join('\n')
 
+// Only the serialized-table mega-chunks blow past this; normal prose chunks fit whole,
+// so a key fact never gets clipped by the cap.
+const MAX_CHUNK_CHARS = 2000
+
 export function formatContext(chunks: RetrievedChunk[]): string {
   return chunks
     .map((c) => {
       const head = `[chunkId=${c.chunkId}] (page ${c.page}${c.section ? `, ${c.section}` : ''})`
-      return `${head}\n${c.content}`
+      const body =
+        c.content.length > MAX_CHUNK_CHARS ? `${c.content.slice(0, MAX_CHUNK_CHARS)}…` : c.content
+      return `${head}\n${body}`
     })
     .join('\n\n')
 }

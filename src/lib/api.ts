@@ -29,15 +29,24 @@ export async function ask(versionId: string, question: string): Promise<AnswerRe
   const token = sess.session?.access_token
   if (!token) throw new Error('Please sign in again.')
   const base = import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, '')
-  const res = await fetch(`${base}/functions/v1/ask`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ versionId, question }),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${base}/functions/v1/ask`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ versionId, question }),
+      signal: AbortSignal.timeout(130_000),
+    })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'TimeoutError') {
+      throw new Error('That took too long — the answer service is under load. Please try again.')
+    }
+    throw new Error('Could not reach the answer service. Check your connection and try again.')
+  }
   if (res.status === 503) throw new Error('The answer service is busy right now — try again in a moment.')
   if (!res.ok) throw new Error(`Ask failed (${res.status})`)
   return answerResultSchema.parse(await res.json())

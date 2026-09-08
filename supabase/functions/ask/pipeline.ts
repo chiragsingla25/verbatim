@@ -24,7 +24,10 @@ import {
 } from '../_shared/prompt.ts'
 import { chatJson, type ChatFn } from '../_shared/llm.ts'
 
-const RETRIEVE_K = 12
+// k at the low end of the spec's 10–12. The wall-clock pressure from a slow free
+// reasoning model is handled by capping per-chunk length in formatContext (the
+// serialized norm-table chunks were the real bloat), not by starving retrieval.
+const RETRIEVE_K = 10
 
 export type AskInput = { versionId: string; question: string }
 
@@ -136,11 +139,17 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
   const draftCitations = draft.citations.filter((c) => validIds.has(c.chunkId))
   if (draftCitations.length === 0) return abstain(retrieved) // no real support -> abstain
 
-  // 3. verify: keep only supported claims
+  // 3. verify: keep only supported claims. Send just the cited chunks (plus a couple more
+  //    for context) — the whole retrieved set again would double the prompt for no gain.
+  const citedIds = new Set(draftCitations.map((c) => c.chunkId))
+  const verifyContext = [
+    ...hits.filter((h) => citedIds.has(h.chunkId)),
+    ...hits.filter((h) => !citedIds.has(h.chunkId)).slice(0, 2),
+  ]
   const verify = await chatJson(
     deps.chat,
     VERIFY_SYSTEM,
-    verifyUserPrompt(draft.answer, hits),
+    verifyUserPrompt(draft.answer, verifyContext),
     parseVerify,
   )
   if (!verify) return abstain(retrieved) // couldn't verify -> don't ship
