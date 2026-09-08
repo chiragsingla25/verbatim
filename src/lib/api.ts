@@ -67,3 +67,84 @@ export async function listVisibleVersions(): Promise<LibraryVersion[]> {
   if (error) throw new Error(error.message)
   return (data ?? []) as unknown as LibraryVersion[]
 }
+
+export type ReviewData = {
+  version: {
+    id: string
+    title: string
+    status: string
+    page_count: number | null
+    source_object_path: string | null
+    instrument: { name: string } | null
+  }
+  job: { state: string; ocr_quality: number | null; flags: string[]; error: string | null } | null
+  tableChunks: { id: string; page: number | null; content: string; table_ref: string | null }[]
+  totalChunks: number
+  sourceUrl: string | null
+}
+
+// 1f: everything ReviewUpload needs — version, latest ingest job, the extracted table
+// chunks, and a short-TTL signed URL to the source PDF (private bucket).
+export async function getReviewData(versionId: string): Promise<ReviewData> {
+  const { data: version, error: vErr } = await supabase
+    .from('manual_versions')
+    .select('id, title, status, page_count, source_object_path, instrument:instruments(name)')
+    .eq('id', versionId)
+    .single()
+  if (vErr) throw new Error(vErr.message)
+
+  const { data: jobRow } = await supabase
+    .from('ingest_jobs')
+    .select('state, ocr_quality, flags, error')
+    .eq('version_id', versionId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const { data: tables } = await supabase
+    .from('document_chunks')
+    .select('id, page, content, table_ref')
+    .eq('version_id', versionId)
+    .not('table_ref', 'is', null)
+    .order('page')
+
+  const { count } = await supabase
+    .from('document_chunks')
+    .select('*', { count: 'exact', head: true })
+    .eq('version_id', versionId)
+
+  let sourceUrl: string | null = null
+  const path = (version as { source_object_path: string | null }).source_object_path
+  if (path) {
+    const signed = await supabase.storage.from('manuals').createSignedUrl(path, 3600)
+    sourceUrl = signed.data?.signedUrl ?? null
+  }
+
+  return {
+    version: version as unknown as ReviewData['version'],
+    job: jobRow
+      ? {
+          state: (jobRow as { state: string }).state,
+          ocr_quality: (jobRow as { ocr_quality: number | null }).ocr_quality,
+          flags: ((jobRow as { flags: unknown }).flags as string[]) ?? [],
+          error: (jobRow as { error: string | null }).error,
+        }
+      : null,
+    tableChunks: (tables ?? []) as unknown as ReviewData['tableChunks'],
+    totalChunks: count ?? 0,
+    sourceUrl,
+  }
+}
+
+export async function publishVersion(versionId: string): Promise<void> {
+  const { error } = await supabase.rpc('publish_manual_version', { p_version_id: versionId })
+  if (error) throw new Error(error.message)
+}
+
+export async function rejectVersion(versionId: string, reason: string): Promise<void> {
+  const { error } = await supabase.rpc('reject_manual_version', {
+    p_version_id: versionId,
+    p_reason: reason || null,
+  })
+  if (error) throw new Error(error.message)
+}
