@@ -210,6 +210,11 @@ def run(job_id: str, version_id: str, object_path: str) -> None:
                 raise RuntimeError("chunker produced 0 chunks")
 
             vectors = embed_texts([r["content"] for r in records])
+            # Idempotent re-ingest: clear any chunks from a previous run of this version
+            # before inserting, so a re-upload of a still-pending version doesn't duplicate.
+            conn.execute(
+                "delete from public.document_chunks where version_id = %s", (version_id,)
+            )
             insert_chunks(conn, version_id, records, vectors)
 
             # 7. page_count on the parent version (status stays 'pending')
