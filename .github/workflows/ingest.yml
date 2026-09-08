@@ -1,0 +1,47 @@
+name: ingest
+
+# Triggered by the ingest-dispatch Edge Function (1d) via
+#   POST /repos/<owner>/verbatim/dispatches
+#   { "event_type": "ingest",
+#     "client_payload": { "job_id": "<uuid>", "version_id": "<uuid>",
+#                         "object_path": "v/<version_id>/source.pdf" } }
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   SUPABASE_URL                - https://<ref>.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY   - service_role JWT (Storage download + DB writes; RLS bypassed)
+#   SUPABASE_DB_URL             - postgresql://... session-pooler connection string
+
+on:
+  repository_dispatch:
+    types: [ingest]
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25  # torch + docling install and first-run model download, then a CPU parse
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ingest/requirements.txt
+
+      - name: Install ingestion deps
+        run: pip install -r ingest/requirements.txt
+
+      - name: Run ingestion
+        # client_payload values pass through env (not string-interpolated into the shell).
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          JOB_ID: ${{ github.event.client_payload.job_id }}
+          VERSION_ID: ${{ github.event.client_payload.version_id }}
+          OBJECT_PATH: ${{ github.event.client_payload.object_path }}
+        run: >
+          python -m ingest.run
+          --job-id "$JOB_ID"
+          --version-id "$VERSION_ID"
+          --object-path "$OBJECT_PATH"

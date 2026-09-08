@@ -1,0 +1,15 @@
+# Verbatim ingestion job (.github/workflows/ingest.yml -> python -m ingest.run).
+# Pins match notebooks/requirements.txt (the Phase 0 checkpoint env, 2026-09-08) plus
+# pypdf for the encrypted-PDF check. CPU-only torch via the PyTorch CPU index.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+docling==2.126.0
+sentence-transformers==6.0.1   # thenlper/gte-small, 384-dim
+transformers==5.16.1
+torch==2.14.0                  # CPU wheel from the extra index above
+numpy==2.4.6
+psycopg[binary]==3.3.5
+pgvector==0.5.0
+python-dotenv==1.2.3
+httpx==0.28.1
+pypdf==6.18.0                  # magic-bytes + is_encrypted check in ingest/run.py
