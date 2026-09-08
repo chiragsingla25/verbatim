@@ -150,6 +150,12 @@ def call_ask(cfg: Config, version_id: str, question: str, *, retries: int = 3) -
             if r.status_code == 429:
                 time.sleep(min(2 ** attempt * 10, 60))
                 continue
+            if r.status_code in (401, 403):
+                # not transient — surface the body and stop
+                raise RuntimeError(
+                    f"/ask {r.status_code}: {r.text[:300]} "
+                    f"(anon_key len={len(cfg.anon_key)}, url={cfg.ask_url})"
+                )
             r.raise_for_status()
             d = r.json()
             return AskResponse(
