@@ -43,17 +43,15 @@ export const VERIFY_SYSTEM = [
   `  possible. If nothing supported remains, revisedAnswer must be exactly "${ABSTAIN_MESSAGE}".`,
 ].join('\n')
 
-// Only the serialized-table mega-chunks blow past this; normal prose chunks fit whole,
-// so a key fact never gets clipped by the cap.
-const MAX_CHUNK_CHARS = 2000
-
+// The whole retrieved chunk goes to the model — a per-chunk char cap was tried for
+// latency and reverted: it clipped load-bearing facts out of prose chunks (AUDIT has
+// ~15 prose chunks > 2000 chars) and regressed the eval suite. Prompt size is kept in
+// check by k and by the lean verify context (cited chunks + 2), not by clipping.
 export function formatContext(chunks: RetrievedChunk[]): string {
   return chunks
     .map((c) => {
       const head = `[chunkId=${c.chunkId}] (page ${c.page}${c.section ? `, ${c.section}` : ''})`
-      const body =
-        c.content.length > MAX_CHUNK_CHARS ? `${c.content.slice(0, MAX_CHUNK_CHARS)}…` : c.content
-      return `${head}\n${body}`
+      return `${head}\n${c.content}`
     })
     .join('\n\n')
 }

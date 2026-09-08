@@ -24,10 +24,10 @@ import {
 } from '../_shared/prompt.ts'
 import { chatJson, type ChatFn } from '../_shared/llm.ts'
 
-// k at the low end of the spec's 10–12. The wall-clock pressure from a slow free
-// reasoning model is handled by capping per-chunk length in formatContext (the
-// serialized norm-table chunks were the real bloat), not by starving retrieval.
-const RETRIEVE_K = 10
+// Spec's k≈10–12. Kept at 12 (the Phase 2-verified value): dropping to 10 for latency
+// regressed the eval suite (missed facts that sat in rank 11–12 chunks). Latency is held
+// down instead by the lean verify context below.
+const RETRIEVE_K = 12
 
 export type AskInput = { versionId: string; question: string }
 
