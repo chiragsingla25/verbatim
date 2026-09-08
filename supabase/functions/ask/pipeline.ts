@@ -7,7 +7,14 @@
 // Invariant: the returned AnswerResult has >=1 citation OR abstained === true. Never both,
 // never neither. match_chunks is RLS-enforced + version-filtered, so any valid chunkId is
 // necessarily a chunk in `versionId`.
-import { ABSTAIN_MESSAGE, type AnswerResult, type Citation } from '../_shared/schema.ts'
+import {
+  ABSTAIN_MESSAGE,
+  type AnswerResult,
+  answerDraftSchema,
+  answerResultSchema,
+  type Citation,
+  verifyResultSchema,
+} from '../_shared/schema.ts'
 import {
   ANSWER_SYSTEM,
   VERIFY_SYSTEM,
@@ -40,43 +47,37 @@ export type QueryLogRow = {
   latency_ms: number
 }
 
-type Draft = { answer: string; citations: Citation[]; abstained: boolean }
-
-function parseDraft(o: unknown): Draft | null {
+// Normalise the model's loose output into the schema shape (coerce page numbers, drop
+// half-formed citations), THEN validate against the zod schema — a boundary object is
+// never a raw dict. A validation failure returns null -> the pipeline abstains.
+function parseDraft(o: unknown) {
   if (typeof o !== 'object' || o === null) return null
   const d = o as Record<string, unknown>
-  if (typeof d.answer !== 'string' || typeof d.abstained !== 'boolean') return null
-  const citations: Citation[] = []
-  if (Array.isArray(d.citations)) {
-    for (const c of d.citations) {
-      if (c && typeof c === 'object') {
-        const cc = c as Record<string, unknown>
-        if (typeof cc.chunkId === 'string' && typeof cc.quote === 'string') {
-          citations.push({
-            chunkId: cc.chunkId,
-            page: Number.isFinite(cc.page) ? Number(cc.page) : 0,
-            quote: cc.quote,
-          })
-        }
-      }
-    }
-  }
-  return { answer: d.answer, citations, abstained: d.abstained }
+  const citations = Array.isArray(d.citations)
+    ? d.citations
+        .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+        .filter((c) => typeof c.chunkId === 'string' && typeof c.quote === 'string')
+        .map((c) => ({
+          chunkId: c.chunkId as string,
+          page: Number.isFinite(Number(c.page)) ? Math.trunc(Number(c.page)) : 0,
+          quote: c.quote as string,
+        }))
+    : []
+  const parsed = answerDraftSchema.safeParse({ answer: d.answer, citations, abstained: d.abstained })
+  return parsed.success ? parsed.data : null
 }
 
-type Verify = { supported: boolean; unsupportedClaims: string[]; revisedAnswer: string }
-
-function parseVerify(o: unknown): Verify | null {
+function parseVerify(o: unknown) {
   if (typeof o !== 'object' || o === null) return null
   const v = o as Record<string, unknown>
-  if (typeof v.supported !== 'boolean') return null
-  return {
+  const parsed = verifyResultSchema.safeParse({
     supported: v.supported,
     unsupportedClaims: Array.isArray(v.unsupportedClaims)
       ? v.unsupportedClaims.filter((x): x is string => typeof x === 'string')
-      : [],
-    revisedAnswer: typeof v.revisedAnswer === 'string' ? v.revisedAnswer : '',
-  }
+      : undefined,
+    revisedAnswer: typeof v.revisedAnswer === 'string' ? v.revisedAnswer : undefined,
+  })
+  return parsed.success ? parsed.data : null
 }
 
 function looksLikeAbstention(text: string): boolean {
@@ -156,13 +157,14 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
 
   if (finalCitations.length === 0) return abstain(retrieved, verify)
 
-  const result: AnswerResult = {
+  // Validate the object that crosses the boundary back to the SPA.
+  const result: AnswerResult = answerResultSchema.parse({
     answer: finalAnswer,
     citations: finalCitations,
     abstained: false,
     versionId,
     retrieved,
-  }
+  })
   await safeLog(deps, {
     version_id: versionId,
     question,

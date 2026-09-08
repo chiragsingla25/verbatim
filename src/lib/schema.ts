@@ -25,15 +25,23 @@ export const answerResultSchema = z.object({
 
 export const verifyResultSchema = z.object({
   supported: z.boolean(),
-  unsupportedClaims: z.array(z.string()),
+  unsupportedClaims: z.array(z.string()).default([]),
   // The answer re-emitted with unsupported claims removed. Exactly the abstention
   // message when nothing supported remains.
-  revisedAnswer: z.string(),
+  revisedAnswer: z.string().default(''),
+})
+
+// The answer step's raw output (a subset of AnswerResult — no versionId/retrieved yet).
+export const answerDraftSchema = z.object({
+  answer: z.string(),
+  citations: z.array(citationSchema).default([]),
+  abstained: z.boolean(),
 })
 
 export type Citation = z.infer<typeof citationSchema>
 export type AnswerResult = z.infer<typeof answerResultSchema>
 export type VerifyResult = z.infer<typeof verifyResultSchema>
+export type AnswerDraft = z.infer<typeof answerDraftSchema>
 
 // App-role vocabulary (mirrors the `role` CHECK on public.profiles).
 export const APP_ROLES = ['student', 'contributor', 'admin'] as const
