@@ -102,25 +102,31 @@ def load_golden() -> list[GoldenCase]:
 _token_cache: dict[str, str] = {}
 
 
+def _password_grant(cfg: Config) -> httpx.Response:
+    return httpx.post(f"{cfg.supabase_url}/auth/v1/token", headers={"apikey": cfg.anon_key},
+                      params={"grant_type": "password"},
+                      json={"email": EVAL_USER_EMAIL, "password": EVAL_USER_PW}, timeout=30)
+
+
 def eval_user_token(cfg: Config) -> str:
     if "t" in _token_cache:
         return _token_cache["t"]
-    admin = {"apikey": cfg.service_role_key, "Authorization": f"Bearer {cfg.service_role_key}"}
-    # ensure the eval user exists + is confirmed (idempotent)
-    users = httpx.get(f"{cfg.supabase_url}/auth/v1/admin/users", headers=admin,
-                      params={"per_page": 200}, timeout=30).json().get("users", [])
-    uid = next((u["id"] for u in users if u["email"] == EVAL_USER_EMAIL), None)
-    if uid is None:
-        r = httpx.post(f"{cfg.supabase_url}/auth/v1/admin/users", headers=admin,
+    # Try to sign in first. Only touch the admin API if that fails — resetting the password
+    # on every call invalidates sessions held by a concurrent eval run (local + CI).
+    r = _password_grant(cfg)
+    if r.status_code != 200:
+        admin = {"apikey": cfg.service_role_key, "Authorization": f"Bearer {cfg.service_role_key}"}
+        users = httpx.get(f"{cfg.supabase_url}/auth/v1/admin/users", headers=admin,
+                          params={"per_page": 200}, timeout=30).json().get("users", [])
+        uid = next((u["id"] for u in users if u["email"] == EVAL_USER_EMAIL), None)
+        if uid is None:
+            httpx.post(f"{cfg.supabase_url}/auth/v1/admin/users", headers=admin,
                        json={"email": EVAL_USER_EMAIL, "password": EVAL_USER_PW,
-                             "email_confirm": True}, timeout=30)
-        r.raise_for_status()
-    else:
-        httpx.put(f"{cfg.supabase_url}/auth/v1/admin/users/{uid}", headers=admin,
-                  json={"password": EVAL_USER_PW}, timeout=30)
-    r = httpx.post(f"{cfg.supabase_url}/auth/v1/token", headers={"apikey": cfg.anon_key},
-                   params={"grant_type": "password"},
-                   json={"email": EVAL_USER_EMAIL, "password": EVAL_USER_PW}, timeout=30)
+                             "email_confirm": True}, timeout=30).raise_for_status()
+        else:
+            httpx.put(f"{cfg.supabase_url}/auth/v1/admin/users/{uid}", headers=admin,
+                      json={"password": EVAL_USER_PW}, timeout=30).raise_for_status()
+        r = _password_grant(cfg)
     r.raise_for_status()
     _token_cache["t"] = r.json()["access_token"]
     return _token_cache["t"]
@@ -129,6 +135,10 @@ def eval_user_token(cfg: Config) -> str:
 class QuotaExhausted(RuntimeError):
     """The deployed /ask is up but the LLM endpoint is out of daily quota (503). The eval
     suite can't run — this is distinct from an eval failure."""
+
+
+class _Terminal(RuntimeError):
+    """A non-retryable /ask failure (bad auth, bad request)."""
 
 
 @dataclass
@@ -158,10 +168,8 @@ def call_ask(cfg: Config, version_id: str, question: str, *, retries: int = 3) -
             if r.status_code == 503:
                 raise QuotaExhausted(f"/ask 503 (LLM out of quota): {r.text[:200]}")
             if r.status_code in (401, 403):
-                # not transient — surface the body and stop
-                raise RuntimeError(
-                    f"/ask {r.status_code}: {r.text[:300]} "
-                    f"(anon_key len={len(cfg.anon_key)}, url={cfg.ask_url})"
+                raise _Terminal(
+                    f"/ask {r.status_code}: {r.text[:200]} (url={cfg.ask_url})"
                 )
             r.raise_for_status()
             d = r.json()
@@ -173,8 +181,8 @@ def call_ask(cfg: Config, version_id: str, question: str, *, retries: int = 3) -
                 latency_ms=int((time.time() - t0) * 1000),
                 raw=d,
             )
-        except QuotaExhausted:
-            raise  # not retryable — the whole run is inconclusive
+        except (QuotaExhausted, _Terminal):
+            raise  # not retryable
         except Exception as e:  # noqa: BLE001
             last = e
             time.sleep(min(2 ** attempt * 5, 30))
