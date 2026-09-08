@@ -36,3 +36,6 @@ evals/results/
 
 # phase 0 scratch: external manual PDFs, re-fetchable from URLs in the notebook
 data/manuals/
+
+# stray deno lockfile at repo root (functions have their own under supabase/functions/)
+/deno.lock
