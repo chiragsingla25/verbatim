@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 
-from common import AskResponse, GoldenCase
+from common import AskResponse, Config, GoldenCase, fetch_chunk_contents
 
 
 def _judge_llm():
@@ -28,16 +28,20 @@ def _judge_llm():
     ))
 
 
-def _contexts(resp: AskResponse) -> list[str]:
-    # The pipeline returns citation quotes, not full chunks — enough signal for
-    # faithfulness / precision. Fall back to a placeholder so RAGAS can still score.
-    quotes = [c.get("quote", "") for c in resp.citations if c.get("quote")]
-    return quotes or ["(no context returned)"]
-
-
-def run_ragas(cases: list[GoldenCase], responses: dict[str, AskResponse]) -> dict[str, float]:
+def run_ragas(
+    cfg: Config, cases: list[GoldenCase], responses: dict[str, AskResponse]
+) -> dict[str, float]:
     from ragas import EvaluationDataset, evaluate
     from ragas.metrics import Faithfulness, LLMContextPrecisionWithoutReference
+
+    # full text of every chunk any answerable case retrieved (one bulk fetch)
+    all_ids = sorted({
+        r.get("chunkId")
+        for c in cases if not c.should_abstain
+        for r in (responses.get(c.id).retrieved if responses.get(c.id) else [])
+        if r.get("chunkId")
+    })
+    chunk_text = fetch_chunk_contents(cfg, all_ids)
 
     samples = []
     for c in cases:
@@ -46,10 +50,11 @@ def run_ragas(cases: list[GoldenCase], responses: dict[str, AskResponse]) -> dic
         resp = responses.get(c.id)
         if resp is None:
             continue
+        contexts = [chunk_text[r["chunkId"]] for r in resp.retrieved if r.get("chunkId") in chunk_text]
         samples.append({
             "user_input": c.question,
             "response": resp.answer if not resp.abstained else "(abstained)",
-            "retrieved_contexts": _contexts(resp),
+            "retrieved_contexts": contexts or ["(no context returned)"],
         })
     if not samples:
         return {}

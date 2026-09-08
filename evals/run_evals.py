@@ -80,7 +80,7 @@ def _run(argv: list[str] | None = None) -> int:
     if not args.quick:
         from ragas_suite import run_ragas  # lazy: heavy deps
 
-        ragas_scores = run_ragas(cases, responses)
+        ragas_scores = run_ragas(cfg, cases, responses)
         print("\n== RAGAS ==")
         for metric, score in ragas_scores.items():
             print(f"  {metric:34} {score:.3f}")

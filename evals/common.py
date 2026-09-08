@@ -151,6 +151,21 @@ class AskResponse:
     raw: dict
 
 
+def fetch_chunk_contents(cfg: Config, chunk_ids: list[str]) -> dict[str, str]:
+    """Full text of the given document_chunks, via the service role. Used by RAGAS so
+    faithfulness is scored against the real retrieved context, not just citation quotes."""
+    if not chunk_ids:
+        return {}
+    r = httpx.get(
+        f"{cfg.supabase_url}/rest/v1/document_chunks",
+        headers={"apikey": cfg.service_role_key, "Authorization": f"Bearer {cfg.service_role_key}"},
+        params={"id": f"in.({','.join(chunk_ids)})", "select": "id,content"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return {row["id"]: row["content"] for row in r.json()}
+
+
 def call_ask(cfg: Config, version_id: str, question: str, *, retries: int = 3) -> AskResponse:
     token = eval_user_token(cfg)
     last: Exception | None = None
