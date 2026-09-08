@@ -20,3 +20,5 @@
 {"id": "audit-score-20", "version": "audit", "question": "What does an AUDIT score of 20 or above warrant?", "expectedAnswerContains": ["diagnostic evaluation"], "shouldAbstain": false}
 {"id": "audit-vs-phq-leak", "version": "audit", "question": "What score on this instrument indicates moderately severe depression?", "shouldAbstain": true, "rationale": "PHQ-9 severity bands; not in the AUDIT manual."}
 {"id": "audit-vs-pss-leak", "version": "audit", "question": "What is the mean score on this scale for the 18 to 29 age group?", "shouldAbstain": true, "rationale": "PSS norm table; the AUDIT manual has no such norms."}
+{"id": "pss-no-alpha", "version": "pss", "question": "What is the Cronbach's alpha (internal consistency) reported for the PSS?", "shouldAbstain": true, "rationale": "This 3-page PSS sheet lists validity evidence but no reliability coefficient."}
+{"id": "phq-no-sensitivity-number", "version": "phq-gad7", "question": "What is the exact sensitivity percentage of the PHQ-2 at a cutpoint of 3?", "shouldAbstain": true, "rationale": "The instruction manual describes the PHQ-2 as a screener but gives no sensitivity figure for it."}
