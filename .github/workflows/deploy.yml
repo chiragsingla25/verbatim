@@ -46,6 +46,8 @@ jobs:
           pnpm build
           cp dist/index.html dist/404.html   # SPA deep-link fallback for Pages
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true # auto-enable Pages (Source: GitHub Actions) — needs pages: write
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
