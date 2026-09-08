@@ -36,13 +36,15 @@ export function Library() {
         <ul className="manual-list">
           {active.map((v) => (
             <li key={v.id}>
-              <div className="title">{v.instrument?.name ?? 'Unknown instrument'}</div>
-              <div className="meta">
-                {v.title}
-                {v.edition ? ` · ${v.edition}` : ''}
-                {v.year ? ` · ${v.year}` : ''}
-                {v.publisher ? ` · ${v.publisher}` : ''}
-              </div>
+              <Link to={`/ask/${v.id}`} className="row">
+                <div className="title">{v.instrument?.name ?? 'Unknown instrument'}</div>
+                <div className="meta">
+                  {v.title}
+                  {v.edition ? ` · ${v.edition}` : ''}
+                  {v.year ? ` · ${v.year}` : ''}
+                  {v.publisher ? ` · ${v.publisher}` : ''}
+                </div>
+              </Link>
             </li>
           ))}
         </ul>

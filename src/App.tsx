@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { Nav } from './components/Nav'
 import { useAuth } from './lib/auth'
 import type { AppRole } from './lib/schema'
+import { Ask } from './routes/Ask'
 import { AuthCallback } from './routes/AuthCallback'
 import { Library } from './routes/Library'
 import { ReviewUpload } from './routes/ReviewUpload'
@@ -47,6 +48,14 @@ export default function App() {
           element={
             <RequireAuth>
               <Library />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/ask/:versionId"
+          element={
+            <RequireAuth>
+              <Ask />
             </RequireAuth>
           }
         />

@@ -1,4 +1,55 @@
+import { type AnswerResult, answerResultSchema } from './schema'
 import { supabase } from './supabase'
+
+// ── Ask (Phase 3) ──────────────────────────────────────────────────────────
+export type AskVersion = {
+  id: string
+  title: string
+  edition: string | null
+  year: number | null
+  publisher: string | null
+  status: string
+  instrument: { name: string } | null
+}
+
+export async function getAskVersion(versionId: string): Promise<AskVersion> {
+  const { data, error } = await supabase
+    .from('manual_versions')
+    .select('id, title, edition, year, publisher, status, instrument:instruments(name)')
+    .eq('id', versionId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error('That manual version is not available.')
+  return data as unknown as AskVersion
+}
+
+// POST { versionId, question } to the /ask Edge Function with the caller's JWT.
+export async function ask(versionId: string, question: string): Promise<AnswerResult> {
+  const { data: sess } = await supabase.auth.getSession()
+  const token = sess.session?.access_token
+  if (!token) throw new Error('Please sign in again.')
+  const base = import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, '')
+  const res = await fetch(`${base}/functions/v1/ask`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ versionId, question }),
+  })
+  if (res.status === 503) throw new Error('The answer service is busy right now — try again in a moment.')
+  if (!res.ok) throw new Error(`Ask failed (${res.status})`)
+  return answerResultSchema.parse(await res.json())
+}
+
+// Short-TTL signed URL to a version's source PDF (RLS: readable for an active version).
+export async function sourcePdfUrl(versionId: string): Promise<string> {
+  const path = `v/${versionId}/source.pdf`
+  const { data, error } = await supabase.storage.from('manuals').createSignedUrl(path, 600)
+  if (error || !data?.signedUrl) throw new Error(error?.message ?? 'Could not open the source PDF.')
+  return data.signedUrl
+}
 
 export type ManualUploadInput = {
   instrumentName: string
