@@ -4,12 +4,20 @@ import { useAuth } from '../lib/auth'
 export function Nav() {
   const { session, role, signOut } = useAuth()
   const navigate = useNavigate()
+  const canUpload = role === 'contributor' || role === 'admin'
 
   return (
     <header className="topbar">
-      <Link to="/" className="brand" style={{ textDecoration: 'none', color: 'inherit' }}>
-        Verbatim
-      </Link>
+      <span>
+        <Link to="/" className="brand" style={{ textDecoration: 'none', color: 'inherit' }}>
+          Verbatim
+        </Link>
+        {session && canUpload && (
+          <Link to="/upload" style={{ marginLeft: '1rem', fontSize: '0.9rem' }}>
+            upload
+          </Link>
+        )}
+      </span>
       {session ? (
         <span className="who">
           {session.user.email}
