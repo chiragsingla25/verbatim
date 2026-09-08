@@ -1,5 +1,6 @@
-// MIRROR of supabase/functions/_shared/schema.ts — keep them identical.
-// The Edge Function copy is the source of truth; this one is what the SPA imports.
+// MIRROR of supabase/functions/_shared/schema.ts — keep the part from `citationSchema`
+// onward byte-identical. The Edge Function copy is the source of truth; the import line
+// legitimately differs (npm: there, bare here).
 import { z } from 'zod'
 
 export const citationSchema = z.object({
@@ -25,6 +26,9 @@ export const answerResultSchema = z.object({
 export const verifyResultSchema = z.object({
   supported: z.boolean(),
   unsupportedClaims: z.array(z.string()),
+  // The answer re-emitted with unsupported claims removed. Exactly the abstention
+  // message when nothing supported remains.
+  revisedAnswer: z.string(),
 })
 
 export type Citation = z.infer<typeof citationSchema>
@@ -34,3 +38,6 @@ export type VerifyResult = z.infer<typeof verifyResultSchema>
 // App-role vocabulary (mirrors the `role` CHECK on public.profiles).
 export const APP_ROLES = ['student', 'contributor', 'admin'] as const
 export type AppRole = (typeof APP_ROLES)[number]
+
+// The "not found in this version" answer. Every abstention uses exactly this string.
+export const ABSTAIN_MESSAGE = 'Not found in this version.'

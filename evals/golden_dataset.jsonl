@@ -1,0 +1,22 @@
+{"id": "pss-reverse-items", "version": "pss", "question": "Which items of the PSS are reverse-scored?", "expectedAnswerContains": ["4", "5", "7", "8"], "shouldAbstain": false, "expectedPage": 1}
+{"id": "pss-women-mean", "version": "pss", "question": "According to the norm table, what is the mean PSS-10 score for women?", "expectedAnswerContains": ["13.7"], "shouldAbstain": false, "expectedPage": 1}
+{"id": "pss-age-18-29-mean", "version": "pss", "question": "What is the mean PSS score for the 18 to 29 age group?", "expectedAnswerContains": ["14.2"], "shouldAbstain": false, "expectedPage": 1}
+{"id": "pss-short-form-items", "version": "pss", "question": "How many items are in the short form of the PSS?", "expectedAnswerContains": ["4"], "shouldAbstain": false, "expectedPage": 1}
+{"id": "pss-predictive-validity", "version": "pss", "question": "After how long does the predictive validity of the PSS fall off?", "expectedAnswerContains": ["eight"], "shouldAbstain": false, "expectedPage": 1}
+{"id": "pss-response-scale", "version": "pss", "question": "What labels are used for the PSS response options?", "expectedAnswerContains": ["Never", "Very Often"], "shouldAbstain": false}
+{"id": "pss-no-cutoff", "version": "pss", "question": "What PSS score is the clinical cut-off for high stress?", "shouldAbstain": true, "rationale": "The PSS sheet publishes norms but no diagnostic cut-off score."}
+{"id": "pss-vs-audit-leak", "version": "pss", "question": "What total score on this scale indicates hazardous or harmful alcohol use?", "shouldAbstain": true, "rationale": "AUDIT content; not in the PSS version."}
+{"id": "phq9-mod-severe", "version": "phq-gad7", "question": "What PHQ-9 total score indicates moderately severe depression?", "expectedAnswerContains": ["15"], "shouldAbstain": false, "expectedPage": 7}
+{"id": "phq9-item-count", "version": "phq-gad7", "question": "How many items does the PHQ-9 have and what is its score range?", "expectedAnswerContains": ["9", "27"], "shouldAbstain": false, "expectedPage": 3}
+{"id": "gad7-range", "version": "phq-gad7", "question": "What is the score range of the GAD-7?", "expectedAnswerContains": ["21"], "shouldAbstain": false, "expectedPage": 3}
+{"id": "gad7-cutpoints", "version": "phq-gad7", "question": "What are the GAD-7 cut-points for mild, moderate, and severe anxiety?", "expectedAnswerContains": ["5", "10", "15"], "shouldAbstain": false}
+{"id": "phq9-yellow-flag", "version": "phq-gad7", "question": "What PHQ-9 score is considered a 'yellow flag'?", "expectedAnswerContains": ["10"], "shouldAbstain": false}
+{"id": "phq9-severe-action", "version": "phq-gad7", "question": "What treatment action is proposed for a PHQ-9 score in the 20 to 27 range?", "expectedAnswerContains": ["pharmacotherapy"], "shouldAbstain": false, "expectedPage": 7}
+{"id": "phq-vs-pss-leak", "version": "phq-gad7", "question": "According to the norm table, what is the mean total score for women?", "shouldAbstain": true, "rationale": "PSS norm-table content (women's mean); the PHQ/GAD-7 manual has no norm table."}
+{"id": "audit-hazardous-cutoff", "version": "audit", "question": "What total AUDIT score is recommended as an indicator of hazardous and harmful alcohol use?", "expectedAnswerContains": ["8"], "shouldAbstain": false}
+{"id": "audit-elderly-cutoff", "version": "audit", "question": "What AUDIT cut-off score is suggested for women and for men over age 65?", "expectedAnswerContains": ["7"], "shouldAbstain": false}
+{"id": "audit-zone-ii-action", "version": "audit", "question": "What intervention is recommended for an AUDIT score between 8 and 15?", "expectedAnswerContains": ["simple advice"], "shouldAbstain": false}
+{"id": "audit-item-count", "version": "audit", "question": "How many questions are on the AUDIT and what does each response score range from?", "expectedAnswerContains": ["10", "4"], "shouldAbstain": false}
+{"id": "audit-score-20", "version": "audit", "question": "What does an AUDIT score of 20 or above warrant?", "expectedAnswerContains": ["diagnostic evaluation"], "shouldAbstain": false}
+{"id": "audit-vs-phq-leak", "version": "audit", "question": "What score on this instrument indicates moderately severe depression?", "shouldAbstain": true, "rationale": "PHQ-9 severity bands; not in the AUDIT manual."}
+{"id": "audit-vs-pss-leak", "version": "audit", "question": "What is the mean score on this scale for the 18 to 29 age group?", "shouldAbstain": true, "rationale": "PSS norm table; the AUDIT manual has no such norms."}

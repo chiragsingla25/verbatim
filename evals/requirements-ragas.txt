@@ -1,0 +1,6 @@
+# Full nightly eval extras (run_evals.py, no --quick). Installed on top of requirements.txt.
+-r requirements.txt
+ragas==0.2.15
+langchain-openai==0.2.14
+datasets==3.2.0
+pandas==2.2.3
