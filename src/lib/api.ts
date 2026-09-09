@@ -19,6 +19,8 @@ export type AskVersion = {
   publisher: string | null
   status: string
   instrument: { name: string } | null
+  // The newer version that supersedes this one, if the caller can see it.
+  supersededBy: { id: string; title: string } | null
 }
 
 export async function getAskVersion(versionId: string): Promise<AskVersion> {
@@ -29,7 +31,15 @@ export async function getAskVersion(versionId: string): Promise<AskVersion> {
     .maybeSingle()
   if (error) throw new Error(error.message)
   if (!data) throw new Error('That manual version is not available.')
-  return data as unknown as AskVersion
+
+  const { data: newer } = await supabase
+    .from('manual_versions')
+    .select('id, title')
+    .eq('supersedes_id', versionId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  return { ...(data as unknown as AskVersion), supersededBy: (newer as { id: string; title: string } | null) ?? null }
 }
 
 // POST { versionId, question } to the /ask Edge Function with the caller's JWT.
@@ -124,7 +134,10 @@ export type LibraryVersion = {
   year: number | null
   publisher: string | null
   status: 'pending' | 'active' | 'archived'
+  supersedesId: string | null
   instrument: { name: string; slug: string } | null
+  // The newer version that supersedes this one (its supersedes_id points here), if visible.
+  supersededBy: { id: string; title: string } | null
 }
 
 // ── History / "My answers" (v1.1) ──────────────────────────────────────────
@@ -176,14 +189,42 @@ export async function historyManuals(): Promise<HistoryManual[]> {
   return [...seen].map(([versionId, label]) => ({ versionId, label }))
 }
 
+type RawVersionRow = {
+  id: string
+  title: string
+  edition: string | null
+  year: number | null
+  publisher: string | null
+  status: LibraryVersion['status']
+  supersedes_id: string | null
+  instrument: { name: string; slug: string } | null
+}
+
 export async function listVisibleVersions(): Promise<LibraryVersion[]> {
   const { data, error } = await supabase
     .from('manual_versions')
-    .select('id, title, edition, year, publisher, status, instrument:instruments(name, slug)')
+    .select('id, title, edition, year, publisher, status, supersedes_id, instrument:instruments(name, slug)')
     .order('status')
     .order('title')
   if (error) throw new Error(error.message)
-  return (data ?? []) as unknown as LibraryVersion[]
+  const rows = (data ?? []) as unknown as RawVersionRow[]
+  // "superseded by" is a reverse lookup within the visible set: some row's
+  // supersedes_id points at this one.
+  const supersederOf = new Map<string, { id: string; title: string }>()
+  for (const r of rows) {
+    if (r.supersedes_id) supersederOf.set(r.supersedes_id, { id: r.id, title: r.title })
+  }
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    edition: r.edition,
+    year: r.year,
+    publisher: r.publisher,
+    status: r.status,
+    supersedesId: r.supersedes_id,
+    instrument: r.instrument,
+    supersededBy: supersederOf.get(r.id) ?? null,
+  }))
 }
 
 export type ReviewData = {
@@ -263,6 +304,25 @@ export async function rejectVersion(versionId: string, reason: string): Promise<
   const { error } = await supabase.rpc('reject_manual_version', {
     p_version_id: versionId,
     p_reason: reason || null,
+  })
+  if (error) throw new Error(error.message)
+}
+
+// ── Manual lifecycle (v1.1 Phase 2) — admin only, enforced in the RPC ───────
+export async function archiveVersion(versionId: string): Promise<void> {
+  const { error } = await supabase.rpc('archive_manual_version', { p_version_id: versionId })
+  if (error) throw new Error(error.message)
+}
+
+export async function republishVersion(versionId: string): Promise<void> {
+  const { error } = await supabase.rpc('republish_manual_version', { p_version_id: versionId })
+  if (error) throw new Error(error.message)
+}
+
+export async function setSupersedes(versionId: string, supersedesId: string | null): Promise<void> {
+  const { error } = await supabase.rpc('set_supersedes', {
+    p_version_id: versionId,
+    p_supersedes_id: supersedesId,
   })
   if (error) throw new Error(error.message)
 }

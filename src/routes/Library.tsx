@@ -69,6 +69,9 @@ export function Library() {
                     {v.title}
                     {v.publisher ? ` · ${v.publisher}` : ''}
                   </span>
+                  {v.supersededBy && (
+                    <span className="r-superseded">superseded by {v.supersededBy.title}</span>
+                  )}
                 </span>
                 <span className="r-cell">
                   {v.edition ?? '—'}

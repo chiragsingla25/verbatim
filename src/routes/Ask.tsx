@@ -93,6 +93,11 @@ export function Ask() {
         <Link to="/" className="ask-back">
           ← Manuals
         </Link>
+        {version.supersededBy && (
+          <Link to={`/ask/${version.supersededBy.id}`} className="ask-superseded">
+            Superseded by {version.supersededBy.title} →
+          </Link>
+        )}
       </header>
 
       <div className="ask-thread">
