@@ -137,6 +137,24 @@ reading-first Ask screen (single column, slide-over source on citation click); d
 GitHub Pages and the Edge Functions to Supabase; CI gate on `main`; keep-warm cron Action.
 *Checkpoint:* a student and a contributor each complete their full path on the live github.io URL.
 
+## v1.1 (approved 2026-09-09)
+
+v1 shipped 2026-09-09. Next iteration — three features, all extensions of the shipped
+architecture (no new pattern/service, deployment unchanged). Contract:
+**`specs/2026-09-09-verbatim-v1.1.md`**.
+
+1. **Session history / "My answers"** — a `/history` screen listing and reopening past Q&A from
+   `query_log` (re-renders with no LLM call); a "Re-ask" against the same version when it's
+   still active.
+2. **Manual archive & supersede** — admin-only `SECURITY DEFINER` RPCs to archive (reversible)
+   and to set `supersedes_id`. Existing RLS already hides an archived version from students.
+3. **Admin console** (`/admin`, admin-gated) — Users (full role control, self-change blocked),
+   Manuals (lifecycle actions), Activity (read-only `audit_log` feed).
+
+Delivery model: single developer + `/code-review` gate at each phase boundary (touches RLS +
+a new `SECURITY DEFINER` admin surface). Deferred: edition-comparison, batch Q&A, reranker,
+monitoring, polish/infra bundle.
+
 ## Reference material
 
 - Verbatim v1 PRD — https://claude.ai/code/artifact/b7e2a975-2846-4f2b-b07a-513aa93a24e4

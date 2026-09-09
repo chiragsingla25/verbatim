@@ -4,26 +4,16 @@ Forward-looking work. v1 shipped 2026-09-09 (`specs/2026-09-07-verbatim.md` is n
 record). Each item: **what** / why / rough size / where it was raised. Nothing here blocks the
 current release; the mobile-navigation bug from the re-skin is already fixed (`7451ddd`).
 
+**In progress:** session history, admin console, and manual archive/supersede are spec'd in
+**`specs/2026-09-09-verbatim-v1.1.md`** and being built. The remaining items below are unscheduled.
+
 ---
 
 ## Product
 
-### Session history / "My answers"
-There is no UI to see past Q&A. Every `/ask` **is** persisted to `query_log` (question, answer,
-citations, retrieved chunks, verify result, latency, `at`, `user_id`, `version_id`) and RLS
-already allows self-read (`query_log_select_self_or_admin` in
-`supabase/migrations/20260908120000_phase1_schema.sql`) — no client reads it.
-- *Smallest useful:* a `/history` route listing the caller's rows, filterable by manual, each row
-  opening the existing citation slide-over.
-- *Larger:* re-hydrate a row into an Ask thread so the user can keep asking against that version.
-- The design canvas's "My answers" rail item was deferred here. It's in the current
-  out-of-scope list, so it needs a spec entry + a short clarify pass first.
-- Size: S (read-only list) to M (thread re-hydration).
+### ~~Session history / "My answers"~~ → v1.1 (`specs/2026-09-09-verbatim-v1.1.md`, Phase 1)
 
-### Admin UI for role promotion
-Promoting a student to `contributor` is a manual `profiles.role` UPDATE by an admin today (RLS:
-`profiles_update_admin`, admin-only) — there is no screen. A minimal admin page (list users,
-toggle role) removes the DB step. Size: S.
+### ~~Admin UI for role promotion~~ → v1.1 admin console (`specs/2026-09-09-verbatim-v1.1.md`, Phase 3)
 
 ---
 
