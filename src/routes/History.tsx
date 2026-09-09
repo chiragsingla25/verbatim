@@ -2,21 +2,13 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AnswerCard } from '../components/AnswerCard'
 import { type HistoryEntry, type HistoryManual, historyManuals, listMyHistory } from '../lib/api'
+import { relDate } from '../lib/format'
 
 const SourceSlideOver = lazy(() =>
   import('../components/SourceSlideOver').then((m) => ({ default: m.SourceSlideOver })),
 )
 
 const PAGE = 25
-
-function relDate(iso: string): string {
-  const d = new Date(iso)
-  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000)
-  if (days <= 0) return 'today'
-  if (days === 1) return 'yesterday'
-  if (days < 30) return `${days}d ago`
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
 
 function snippet(h: HistoryEntry): string {
   if (h.abstained) return 'Not found in this version.'

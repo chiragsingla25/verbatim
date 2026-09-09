@@ -4,6 +4,7 @@ import { MobileTopBar } from './components/MobileTopBar'
 import { Sidebar } from './components/Sidebar'
 import { useAuth } from './lib/auth'
 import type { AppRole } from './lib/schema'
+import { Admin } from './routes/Admin'
 import { Ask } from './routes/Ask'
 import { AuthCallback } from './routes/AuthCallback'
 import { History } from './routes/History'
@@ -49,7 +50,9 @@ function RequireRole({ roles, children }: { roles: AppRole[]; children: ReactNod
         <div className="page-body">
           <h1>Not available</h1>
           <p className="subtitle">
-            This page is for contributors. Ask an admin to grant you the contributor role.
+            You don’t have access to this page. Ask an admin to grant you the{' '}
+            {roles.includes('admin') && !roles.includes('contributor') ? 'admin' : 'contributor'}{' '}
+            role.
           </p>
         </div>
       </Shell>
@@ -101,6 +104,14 @@ export default function App() {
         element={
           <RequireRole roles={['contributor', 'admin']}>
             <ReviewUpload />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <RequireRole roles={['admin']}>
+            <Admin />
           </RequireRole>
         }
       />

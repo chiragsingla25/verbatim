@@ -5,7 +5,7 @@ import {
   type RawHistoryRow,
   toHistoryEntry,
 } from './history'
-import { type AnswerResult, answerResultSchema } from './schema'
+import { type AnswerResult, answerResultSchema, type AppRole } from './schema'
 import { supabase } from './supabase'
 
 export type { HistoryEntry }
@@ -331,4 +331,88 @@ export async function setSupersedes(versionId: string, supersedesId: string | nu
     p_supersedes_id: supersedesId,
   })
   if (error) throw new Error(error.message)
+}
+
+// ── Admin console (v1.1 Phase 3) — every RPC re-checks auth_role()='admin' ──
+export type AdminUser = {
+  id: string
+  email: string
+  role: AppRole
+  createdAt: string
+  lastSignInAt: string | null
+}
+
+export async function adminListUsers(): Promise<AdminUser[]> {
+  const { data, error } = await supabase.rpc('admin_list_users')
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+    id: r.id as string,
+    email: r.email as string,
+    role: r.role as AppRole,
+    createdAt: r.created_at as string,
+    lastSignInAt: (r.last_sign_in_at as string | null) ?? null,
+  }))
+}
+
+export async function adminSetRole(userId: string, role: AppRole): Promise<void> {
+  const { error } = await supabase.rpc('admin_set_role', { p_user_id: userId, p_role: role })
+  if (error) throw new Error(error.message)
+}
+
+export type AdminActivity = {
+  id: string
+  at: string
+  actorEmail: string | null
+  action: string
+  target: string | null
+  meta: Record<string, unknown>
+}
+
+export async function adminListActivity(limit = 100): Promise<AdminActivity[]> {
+  const { data, error } = await supabase.rpc('admin_list_activity', { p_limit: limit })
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+    id: r.id as string,
+    at: r.at as string,
+    actorEmail: (r.actor_email as string | null) ?? null,
+    action: r.action as string,
+    target: (r.target as string | null) ?? null,
+    meta: (r.meta as Record<string, unknown>) ?? {},
+  }))
+}
+
+export type AdminVersion = {
+  id: string
+  title: string
+  edition: string | null
+  year: number | null
+  status: 'pending' | 'active' | 'archived'
+  supersedesId: string | null
+  instrument: { id: string; name: string } | null
+  ingestState: string | null
+}
+
+// Every manual version (admin RLS returns all rows) + its latest ingest job state.
+export async function adminListAllVersions(): Promise<AdminVersion[]> {
+  const { data, error } = await supabase
+    .from('manual_versions')
+    .select(
+      'id, title, edition, year, status, supersedes_id, instrument:instruments(id, name), ingest_jobs(state, created_at)',
+    )
+    .order('created_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
+    const jobs = (r.ingest_jobs as Array<{ state: string; created_at: string }> | null) ?? []
+    const latest = jobs.slice().sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
+    return {
+      id: r.id as string,
+      title: r.title as string,
+      edition: (r.edition as string | null) ?? null,
+      year: (r.year as number | null) ?? null,
+      status: r.status as AdminVersion['status'],
+      supersedesId: (r.supersedes_id as string | null) ?? null,
+      instrument: (r.instrument as { id: string; name: string } | null) ?? null,
+      ingestState: latest?.state ?? null,
+    }
+  })
 }
