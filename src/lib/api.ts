@@ -148,11 +148,19 @@ export type LibraryVersion = {
 
 // ── History / "My answers" (v1.1) ──────────────────────────────────────────
 // query_log stores a full AnswerResult per /ask; the /history screen re-renders it with
-// no LLM call. query_log_select_self_or_admin already scopes these to the caller. The
-// row → HistoryEntry transform (+ its types) lives in ./history so it can be unit-tested
-// without the supabase client.
+// no LLM call. query_log_select_self_or_admin scopes these to the caller OR an admin — so
+// "My answers" MUST also filter user_id explicitly, or an admin would see every user's
+// questions. The row → HistoryEntry transform (+ its types) lives in ./history so it can
+// be unit-tested without the supabase client.
 const HISTORY_SELECT =
   'id, question, answer, abstained, citations, version_id, at, manual_versions(title, status, instrument:instruments(name))'
+
+async function currentUserId(): Promise<string> {
+  const { data: sess } = await supabase.auth.getSession()
+  const uid = sess.session?.user.id
+  if (!uid) throw new Error('Please sign in again.')
+  return uid
+}
 
 // One page of the caller's own past questions, newest first. Keyset pagination on the
 // compound (at, id) cursor from the previous page's last row — `at` alone is not unique,
@@ -163,6 +171,7 @@ export async function listMyHistory(
   let q = supabase
     .from('query_log')
     .select(HISTORY_SELECT)
+    .eq('user_id', await currentUserId())
     .order('at', { ascending: false })
     .order('id', { ascending: false })
     .limit(opts.limit ?? 25)
@@ -185,6 +194,7 @@ export async function historyManuals(): Promise<HistoryManual[]> {
   const { data, error } = await supabase
     .from('query_log')
     .select('version_id, manual_versions(title, instrument:instruments(name))')
+    .eq('user_id', await currentUserId())
     .order('at', { ascending: false })
     .limit(400)
   if (error) throw new Error(error.message)
