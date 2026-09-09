@@ -11,6 +11,10 @@ import { supabase } from './supabase'
 export type { HistoryEntry }
 
 // ── Ask (Phase 3) ──────────────────────────────────────────────────────────
+
+// A minimal pointer to another manual version (for "superseded by" links).
+export type VersionRef = { id: string; title: string }
+
 export type AskVersion = {
   id: string
   title: string
@@ -20,26 +24,28 @@ export type AskVersion = {
   status: string
   instrument: { name: string } | null
   // The newer version that supersedes this one, if the caller can see it.
-  supersededBy: { id: string; title: string } | null
+  supersededBy: VersionRef | null
 }
 
 export async function getAskVersion(versionId: string): Promise<AskVersion> {
-  const { data, error } = await supabase
-    .from('manual_versions')
-    .select('id, title, edition, year, publisher, status, instrument:instruments(name)')
-    .eq('id', versionId)
-    .maybeSingle()
+  // Independent reads — the superseder lookup only needs versionId, not `data`.
+  const [{ data, error }, { data: newer }] = await Promise.all([
+    supabase
+      .from('manual_versions')
+      .select('id, title, edition, year, publisher, status, instrument:instruments(name)')
+      .eq('id', versionId)
+      .maybeSingle(),
+    supabase
+      .from('manual_versions')
+      .select('id, title')
+      .eq('supersedes_id', versionId)
+      .eq('status', 'active')
+      .maybeSingle(), // ≤1 row: manual_versions_supersedes_unique
+  ])
   if (error) throw new Error(error.message)
   if (!data) throw new Error('That manual version is not available.')
 
-  const { data: newer } = await supabase
-    .from('manual_versions')
-    .select('id, title')
-    .eq('supersedes_id', versionId)
-    .eq('status', 'active')
-    .maybeSingle()
-
-  return { ...(data as unknown as AskVersion), supersededBy: (newer as { id: string; title: string } | null) ?? null }
+  return { ...(data as unknown as AskVersion), supersededBy: (newer as VersionRef | null) ?? null }
 }
 
 // POST { versionId, question } to the /ask Edge Function with the caller's JWT.
@@ -137,7 +143,7 @@ export type LibraryVersion = {
   supersedesId: string | null
   instrument: { name: string; slug: string } | null
   // The newer version that supersedes this one (its supersedes_id points here), if visible.
-  supersededBy: { id: string; title: string } | null
+  supersededBy: VersionRef | null
 }
 
 // ── History / "My answers" (v1.1) ──────────────────────────────────────────
@@ -209,8 +215,8 @@ export async function listVisibleVersions(): Promise<LibraryVersion[]> {
   if (error) throw new Error(error.message)
   const rows = (data ?? []) as unknown as RawVersionRow[]
   // "superseded by" is a reverse lookup within the visible set: some row's
-  // supersedes_id points at this one.
-  const supersederOf = new Map<string, { id: string; title: string }>()
+  // supersedes_id points at this one (at most one, per manual_versions_supersedes_unique).
+  const supersederOf = new Map<string, VersionRef>()
   for (const r of rows) {
     if (r.supersedes_id) supersederOf.set(r.supersedes_id, { id: r.id, title: r.title })
   }
