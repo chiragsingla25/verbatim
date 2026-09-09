@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AnswerCard } from '../components/AnswerCard'
 import { type HistoryEntry, type HistoryManual, historyManuals, listMyHistory } from '../lib/api'
@@ -33,6 +33,8 @@ export function History() {
   const [done, setDone] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [cite, setCite] = useState<{ versionId: string; page: number; quote: string } | null>(null)
+  // Bumped on every filter change; loadMore discards a response whose gen is stale.
+  const gen = useRef(0)
 
   useEffect(() => {
     historyManuals().then(setManuals).catch(() => setManuals([]))
@@ -42,34 +44,38 @@ export function History() {
   // async callbacks (never synchronously in the effect body); the old list stays visible
   // until the new page arrives, so no loading flash between filters.
   useEffect(() => {
-    let alive = true
+    gen.current += 1
+    const myGen = gen.current
     listMyHistory({ versionId: filter || undefined, limit: PAGE })
       .then((rows) => {
-        if (!alive) return
+        if (gen.current !== myGen) return
         setEntries(rows)
         setDone(rows.length < PAGE)
         setOpenId(null)
         setError(null)
       })
-      .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
-    }
+      .catch((e) => gen.current === myGen && setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => gen.current === myGen && setLoading(false))
   }, [filter])
 
   async function loadMore() {
     const last = entries[entries.length - 1]
     if (!last) return
+    const myGen = gen.current
     setLoading(true)
     try {
-      const rows = await listMyHistory({ versionId: filter || undefined, before: last.at, limit: PAGE })
+      const rows = await listMyHistory({
+        versionId: filter || undefined,
+        before: { at: last.at, id: last.id },
+        limit: PAGE,
+      })
+      if (gen.current !== myGen) return // filter changed mid-fetch — drop this page
       setEntries((e) => [...e, ...rows])
       setDone(rows.length < PAGE)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (gen.current === myGen) setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setLoading(false)
+      if (gen.current === myGen) setLoading(false)
     }
   }
 
