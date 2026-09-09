@@ -65,6 +65,10 @@ query → embed (gte-small, in the Edge Function) → pgvector top-k (k≈10–1
 Do not start a phase before the previous one is approved. Run a short clarify pass (≤5 questions)
 at the top of each phase.
 
+**Status: phases 0–3 complete, v1 shipped 2026-09-09** (live at
+`https://chiragsingla25.github.io/verbatim/`). Forward work is tracked in `docs/backlog.md`, not
+by reopening this phase list.
+
 ## Commands
 
 | Task | Command |
