@@ -17,8 +17,16 @@ function initials(email: string) {
 }
 
 // Persistent left rail (Main / Library artboards): brand, nav, the manual list for
-// quick version switching, and the user chip + theme control at the foot.
-export function Sidebar() {
+// quick version switching, and the user chip + theme control at the foot. Below 760px it
+// renders as an off-canvas drawer: `mobileOpen` toggles it, `onNavigate` closes it after a
+// link tap.
+export function Sidebar({
+  mobileOpen = false,
+  onNavigate,
+}: {
+  mobileOpen?: boolean
+  onNavigate?: () => void
+} = {}) {
   const { session, role, signOut } = useAuth()
   const navigate = useNavigate()
   const { theme, setTheme } = useTheme()
@@ -35,23 +43,23 @@ export function Sidebar() {
   const email = session?.user.email ?? ''
 
   return (
-    <aside className="sidebar">
+    <aside className={mobileOpen ? 'sidebar open' : 'sidebar'}>
       <div className="sidebar-brand">
         <span className="brand-mark">V</span>
-        <Link to="/" className="brand-word">
+        <Link to="/" className="brand-word" onClick={onNavigate}>
           Verbatim
         </Link>
       </div>
 
       <nav className="sidebar-nav">
-        <NavLink to="/" end>
+        <NavLink to="/" end onClick={onNavigate}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5z" />
           </svg>
           Manual library
         </NavLink>
         {canUpload && (
-          <NavLink to="/upload">
+          <NavLink to="/upload" onClick={onNavigate}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 3v12M8 7l4-4 4 4M4 21h16" />
             </svg>
@@ -72,6 +80,7 @@ export function Sidebar() {
             key={v.id}
             to={`/ask/${v.id}`}
             className={v.id === versionId ? 'active' : undefined}
+            onClick={onNavigate}
           >
             <span className="m-name">{v.instrument?.name ?? 'Manual'}</span>
             <span className="m-sub">
@@ -105,6 +114,7 @@ export function Sidebar() {
           <button
             className="ghost"
             onClick={async () => {
+              onNavigate?.()
               await signOut()
               navigate('/signin', { replace: true })
             }}

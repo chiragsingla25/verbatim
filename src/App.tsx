@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { type ReactNode, useState } from 'react'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { MobileTopBar } from './components/MobileTopBar'
 import { Sidebar } from './components/Sidebar'
 import { useAuth } from './lib/auth'
 import type { AppRole } from './lib/schema'
@@ -11,11 +12,20 @@ import { SignIn } from './routes/SignIn'
 import { SignUp } from './routes/SignUp'
 import { Upload } from './routes/Upload'
 
-// Authed pages sit in the app shell: fixed left rail + a single scrolling main column.
+// Authed pages sit in the app shell: a fixed left rail + a single scrolling main column on
+// desktop; below 760px the rail becomes an off-canvas drawer behind a mobile top bar. The
+// drawer's open-state is derived from the route it was opened on, so any navigation (link,
+// back button, redirect) closes it with no effect.
 function Shell({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation()
+  const [openedAt, setOpenedAt] = useState<string | null>(null)
+  const navOpen = openedAt === pathname
+
   return (
     <div className="app-shell">
-      <Sidebar />
+      <MobileTopBar onMenu={() => setOpenedAt(pathname)} />
+      <Sidebar mobileOpen={navOpen} onNavigate={() => setOpenedAt(null)} />
+      <div className="nav-scrim" hidden={!navOpen} onClick={() => setOpenedAt(null)} />
       <div className="main-col">{children}</div>
     </div>
   )

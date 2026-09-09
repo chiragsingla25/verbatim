@@ -305,7 +305,8 @@ input[type="checkbox"] {
   accent-color: var(--om-accent-primary);
 }
 
-/* ── app shell: fixed left rail + scrolling main column ── */
+/* ── app shell: fixed left rail + scrolling main column (desktop). The < 760px overrides
+   live in one block at the END of this file so they win on source order. ── */
 .app-shell {
   display: grid;
   grid-template-columns: var(--rail-w) 1fr;
@@ -319,13 +320,35 @@ input[type="checkbox"] {
   display: flex;
   flex-direction: column;
 }
-@media (max-width: 760px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-  }
-  .sidebar {
-    display: none;
-  }
+
+/* Mobile top bar + drawer scrim — inert on desktop, activated in the < 760px block. */
+.mobile-topbar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--om-border-card);
+  background: var(--om-bg-panel);
+}
+.mobile-topbar .mt-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+}
+.mobile-topbar .brand-word {
+  font-size: 17px;
+}
+.mobile-topbar .mt-menu {
+  background: none;
+  border: 1px solid var(--om-border-input);
+  color: var(--om-text-secondary);
+  border-radius: var(--om-radius-sm);
+  padding: 6px 8px;
+  display: flex;
+}
+.nav-scrim {
+  display: none;
 }
 
 /* ── sidebar ── */
@@ -1173,4 +1196,114 @@ mark.cited {
 }
 .stack-sm > * + * {
   margin-top: 0.5rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Mobile (< 760px). One block, at the end so it wins on source order. The rail
+   becomes an off-canvas drawer behind a top bar; page chrome tightens; the
+   Library table collapses to stacked cards.
+   ───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .mobile-topbar {
+    display: flex;
+  }
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .main-col {
+    height: auto;
+    min-height: 0;
+    flex: 1;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100%;
+    width: min(300px, 84vw);
+    z-index: 3000;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--om-shadow-modal);
+  }
+  .sidebar.open {
+    transform: none;
+  }
+  .nav-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 2900;
+    background: var(--om-bg-scrim);
+  }
+  .nav-scrim[hidden] {
+    display: none;
+  }
+
+  .page-head {
+    padding: 18px 16px 14px;
+  }
+  .page-body {
+    padding: 16px 16px 32px;
+  }
+  .page-head-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Library rows: drop the header, stack each card, let cells wrap under the title */
+  .lib-table-head {
+    display: none;
+  }
+  .lib-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px;
+  }
+  .lib-row > span:not(.r-name) {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+  }
+
+  /* Ask */
+  .ask-lock {
+    padding: 10px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ask-lock-chip {
+    flex: 1 1 100%;
+    order: 3;
+  }
+  .ask-back {
+    margin-left: auto;
+  }
+  .ask-thread {
+    padding: 20px 14px;
+  }
+  .composer {
+    padding: 12px 14px 14px;
+  }
+  .answer-card,
+  .abstain-card {
+    max-width: 100%;
+  }
+  .turn-q {
+    max-width: 88%;
+  }
+
+  /* Auth */
+  .auth-form-pane {
+    padding: 28px 20px;
+  }
+  .auth-form {
+    width: 100%;
+    max-width: 380px;
+  }
 }
