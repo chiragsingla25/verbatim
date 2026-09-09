@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AnswerCard } from '../components/AnswerCard'
 import { type HistoryEntry, type HistoryManual, historyManuals, listMyHistory } from '../lib/api'
-import { relDate } from '../lib/format'
+import { errMessage, relDate } from '../lib/format'
 
 const SourceSlideOver = lazy(() =>
   import('../components/SourceSlideOver').then((m) => ({ default: m.SourceSlideOver })),
@@ -46,7 +46,7 @@ export function History() {
         setOpenId(null)
         setError(null)
       })
-      .catch((e) => gen.current === myGen && setError(e instanceof Error ? e.message : String(e)))
+      .catch((e) => gen.current === myGen && setError(errMessage(e)))
       .finally(() => gen.current === myGen && setLoading(false))
   }, [filter])
 
@@ -65,7 +65,7 @@ export function History() {
       setEntries((e) => [...e, ...rows])
       setDone(rows.length < PAGE)
     } catch (e) {
-      if (gen.current === myGen) setError(e instanceof Error ? e.message : String(e))
+      if (gen.current === myGen) setError(errMessage(e))
     } finally {
       if (gen.current === myGen) setLoading(false)
     }

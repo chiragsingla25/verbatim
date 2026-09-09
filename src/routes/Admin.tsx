@@ -13,7 +13,7 @@ import {
   setSupersedes,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { relDate } from '../lib/format'
+import { errMessage, relDate } from '../lib/format'
 import { APP_ROLES, type AppRole } from '../lib/schema'
 
 type Tab = 'users' | 'manuals' | 'activity'
@@ -25,7 +25,8 @@ const TABS: { key: Tab; label: string }[] = [
 
 export function Admin() {
   const [params, setParams] = useSearchParams()
-  const tab = (params.get('tab') as Tab) || 'users'
+  const raw = params.get('tab')
+  const tab: Tab = TABS.some((t) => t.key === raw) ? (raw as Tab) : 'users'
 
   return (
     <>
@@ -52,10 +53,6 @@ export function Admin() {
   )
 }
 
-function err(e: unknown) {
-  return e instanceof Error ? e.message : String(e)
-}
-
 // ── Users ─────────────────────────────────────────────────────────────────
 function UsersTab() {
   const { session } = useAuth()
@@ -65,7 +62,7 @@ function UsersTab() {
   const [busyId, setBusyId] = useState<string | null>(null)
 
   useEffect(() => {
-    adminListUsers().then(setUsers).catch((e) => setError(err(e)))
+    adminListUsers().then(setUsers).catch((e) => setError(errMessage(e)))
   }, [])
 
   async function change(u: AdminUser, role: AppRole) {
@@ -76,7 +73,7 @@ function UsersTab() {
     try {
       await adminSetRole(u.id, role)
     } catch (e) {
-      setError(err(e))
+      setError(errMessage(e))
       setUsers((list) => list?.map((x) => (x.id === u.id ? { ...x, role: prev } : x)) ?? null)
     } finally {
       setBusyId(null)
@@ -137,7 +134,7 @@ function ManualsTab() {
   const load = () =>
     adminListAllVersions()
       .then(setVersions)
-      .catch((e) => setError(err(e)))
+      .catch((e) => setError(errMessage(e)))
 
   useEffect(() => {
     load()
@@ -150,7 +147,7 @@ function ManualsTab() {
       await fn()
       await load()
     } catch (e) {
-      setError(err(e))
+      setError(errMessage(e))
     } finally {
       setBusyId(null)
     }
@@ -198,7 +195,10 @@ function ManualsTab() {
                 <select
                   value={v.supersedesId ?? ''}
                   disabled={busyId === v.id || siblings.length === 0}
-                  onChange={(e) => act(v.id, () => setSupersedes(v.id, e.target.value || null))}
+                  onChange={(e) => {
+                    const target = e.target.value || null
+                    act(v.id, () => setSupersedes(v.id, target))
+                  }}
                 >
                   <option value="">— none —</option>
                   {siblings.map((s) => (
@@ -245,7 +245,7 @@ function ActivityTab() {
   useEffect(() => {
     adminListActivity(100)
       .then(setRows)
-      .catch((e) => setError(err(e)))
+      .catch((e) => setError(errMessage(e)))
   }, [])
 
   if (error) return <div className="msg err">{error}</div>

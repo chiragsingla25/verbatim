@@ -1,3 +1,8 @@
+// Normalise a thrown value to a display string.
+export function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 // Short relative date for list rows ("today", "3d ago", "12 Mar 2026").
 export function relDate(iso: string): string {
   const d = new Date(iso)
