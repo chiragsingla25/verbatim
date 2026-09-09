@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import type { PDFPageProxy } from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker'
 import { sourcePdfUrl } from '../lib/api'
 
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+// `?worker` (not `?url`) so vite bundles the worker through its own pipeline —
+// that's where vite.config.ts's `worker.rollupOptions.output.banner` injects the
+// Promise.withResolvers polyfill the worker needs on older browsers.
+pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker()
 
 type Rect = { left: number; top: number; width: number; height: number }
 
