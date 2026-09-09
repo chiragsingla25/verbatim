@@ -1,4 +1,4 @@
-import { type AnswerResult, answerResultSchema } from './schema'
+import { type AnswerResult, answerResultSchema, type Citation } from './schema'
 import { supabase } from './supabase'
 
 // ── Ask (Phase 3) ──────────────────────────────────────────────────────────
@@ -116,6 +116,99 @@ export type LibraryVersion = {
   publisher: string | null
   status: 'pending' | 'active' | 'archived'
   instrument: { name: string; slug: string } | null
+}
+
+// ── History / "My answers" (v1.1) ──────────────────────────────────────────
+// query_log stores a full AnswerResult per /ask; the /history screen re-renders it with
+// no LLM call. query_log_select_self_or_admin already scopes these to the caller.
+export type HistoryEntry = {
+  id: string
+  question: string
+  answer: string
+  abstained: boolean
+  citations: Citation[]
+  versionId: string
+  at: string
+  // From the embedded manual_versions row — null when the version is no longer visible
+  // to the caller (archived / removed). manualActive gates the "Re-ask" affordance.
+  manualLabel: string
+  manualActive: boolean
+}
+
+type RawHistoryRow = {
+  id: string
+  question: string
+  answer: string | null
+  abstained: boolean
+  citations: unknown
+  version_id: string
+  at: string
+  manual_versions: {
+    title: string | null
+    status: string | null
+    instrument: { name: string | null } | null
+  } | null
+}
+
+function toHistoryEntry(r: RawHistoryRow): HistoryEntry {
+  const mv = r.manual_versions
+  const label = mv
+    ? `${mv.instrument?.name ?? 'Manual'} · ${mv.title ?? ''}`.replace(/ · $/, '')
+    : 'Archived / removed manual'
+  return {
+    id: r.id,
+    question: r.question,
+    answer: r.answer ?? '',
+    abstained: r.abstained,
+    citations: Array.isArray(r.citations) ? (r.citations as Citation[]) : [],
+    versionId: r.version_id,
+    at: r.at,
+    manualLabel: label,
+    manualActive: mv?.status === 'active',
+  }
+}
+
+const HISTORY_SELECT =
+  'id, question, answer, abstained, citations, version_id, at, manual_versions(title, status, instrument:instruments(name))'
+
+// One page of the caller's own past questions, newest first. `before` is the `at` cursor
+// from the last row of the previous page (keyset pagination).
+export async function listMyHistory(
+  opts: { versionId?: string; before?: string; limit?: number } = {},
+): Promise<HistoryEntry[]> {
+  let q = supabase
+    .from('query_log')
+    .select(HISTORY_SELECT)
+    .order('at', { ascending: false })
+    .limit(opts.limit ?? 25)
+  if (opts.versionId) q = q.eq('version_id', opts.versionId)
+  if (opts.before) q = q.lt('at', opts.before)
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as unknown as RawHistoryRow[]).map(toHistoryEntry)
+}
+
+export type HistoryManual = { versionId: string; label: string }
+
+// Distinct manuals the caller has asked about, for the /history filter dropdown. Derived
+// from a recent slice of their query_log (covers realistic per-user history depth).
+export async function historyManuals(): Promise<HistoryManual[]> {
+  const { data, error } = await supabase
+    .from('query_log')
+    .select('version_id, manual_versions(title, instrument:instruments(name))')
+    .order('at', { ascending: false })
+    .limit(400)
+  if (error) throw new Error(error.message)
+  const seen = new Map<string, string>()
+  for (const r of (data ?? []) as unknown as RawHistoryRow[]) {
+    if (seen.has(r.version_id)) continue
+    const mv = r.manual_versions
+    seen.set(
+      r.version_id,
+      mv ? `${mv.instrument?.name ?? 'Manual'} · ${mv.title ?? ''}`.replace(/ · $/, '') : 'Archived / removed manual',
+    )
+  }
+  return [...seen].map(([versionId, label]) => ({ versionId, label }))
 }
 
 export async function listVisibleVersions(): Promise<LibraryVersion[]> {

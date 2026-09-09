@@ -6,6 +6,7 @@ import { useAuth } from './lib/auth'
 import type { AppRole } from './lib/schema'
 import { Ask } from './routes/Ask'
 import { AuthCallback } from './routes/AuthCallback'
+import { History } from './routes/History'
 import { Library } from './routes/Library'
 import { ReviewUpload } from './routes/ReviewUpload'
 import { SignIn } from './routes/SignIn'
@@ -76,6 +77,14 @@ export default function App() {
         element={
           <RequireAuth>
             <Ask />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/history"
+        element={
+          <RequireAuth>
+            <History />
           </RequireAuth>
         }
       />

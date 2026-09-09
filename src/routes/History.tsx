@@ -1,0 +1,169 @@
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { AnswerCard } from '../components/AnswerCard'
+import { type HistoryEntry, type HistoryManual, historyManuals, listMyHistory } from '../lib/api'
+
+const SourceSlideOver = lazy(() =>
+  import('../components/SourceSlideOver').then((m) => ({ default: m.SourceSlideOver })),
+)
+
+const PAGE = 25
+
+function relDate(iso: string): string {
+  const d = new Date(iso)
+  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000)
+  if (days <= 0) return 'today'
+  if (days === 1) return 'yesterday'
+  if (days < 30) return `${days}d ago`
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function snippet(h: HistoryEntry): string {
+  if (h.abstained) return 'Not found in this version.'
+  return h.answer.length > 140 ? `${h.answer.slice(0, 140)}…` : h.answer
+}
+
+// "My answers" — the caller's past Q&A from query_log, re-rendered with no /ask call.
+export function History() {
+  const [filter, setFilter] = useState('') // versionId, or '' for all
+  const [manuals, setManuals] = useState<HistoryManual[]>([])
+  const [entries, setEntries] = useState<HistoryEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [cite, setCite] = useState<{ versionId: string; page: number; quote: string } | null>(null)
+
+  useEffect(() => {
+    historyManuals().then(setManuals).catch(() => setManuals([]))
+  }, [])
+
+  // Fetch on mount and whenever the manual filter changes. State is only touched in the
+  // async callbacks (never synchronously in the effect body); the old list stays visible
+  // until the new page arrives, so no loading flash between filters.
+  useEffect(() => {
+    let alive = true
+    listMyHistory({ versionId: filter || undefined, limit: PAGE })
+      .then((rows) => {
+        if (!alive) return
+        setEntries(rows)
+        setDone(rows.length < PAGE)
+        setOpenId(null)
+        setError(null)
+      })
+      .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => alive && setLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [filter])
+
+  async function loadMore() {
+    const last = entries[entries.length - 1]
+    if (!last) return
+    setLoading(true)
+    try {
+      const rows = await listMyHistory({ versionId: filter || undefined, before: last.at, limit: PAGE })
+      setEntries((e) => [...e, ...rows])
+      setDone(rows.length < PAGE)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <>
+      <header className="page-head">
+        <div className="page-head-row">
+          <div>
+            <h1>My answers</h1>
+            <p className="subtitle">
+              Every question you’ve asked, newest first — shown exactly as answered, with no new
+              lookup.
+            </p>
+          </div>
+          {manuals.length > 1 && (
+            <select
+              className="hist-filter"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              aria-label="Filter by manual"
+            >
+              <option value="">All manuals</option>
+              {manuals.map((m) => (
+                <option key={m.versionId} value={m.versionId}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      </header>
+
+      <div className="page-body">
+        {error && <div className="msg err">{error}</div>}
+
+        {!loading && !error && entries.length === 0 && (
+          <p className="empty">
+            No questions yet.
+            <br />
+            Open a manual from the library and ask something.
+          </p>
+        )}
+
+        {entries.map((h) => {
+          const open = openId === h.id
+          return (
+            <div key={h.id} className={open ? 'hist-row open' : 'hist-row'}>
+              <button className="hist-head" onClick={() => setOpenId(open ? null : h.id)}>
+                <span className="hist-q">{h.question}</span>
+                {!open && <span className="hist-snip">{snippet(h)}</span>}
+                <span className="hist-meta">
+                  {h.manualLabel} · {relDate(h.at)}
+                </span>
+              </button>
+              {open && (
+                <div className="hist-expand">
+                  <AnswerCard
+                    result={h}
+                    manual={h.manualLabel}
+                    onCite={(page, quote) => setCite({ versionId: h.versionId, page, quote })}
+                  />
+                  {h.manualActive && (
+                    <Link
+                      className="hist-reask"
+                      to={`/ask/${h.versionId}?q=${encodeURIComponent(h.question)}`}
+                    >
+                      Re-ask this against the current version →
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {loading && <p className="turn-pending">Loading…</p>}
+        {!loading && !done && entries.length > 0 && (
+          <button className="secondary hist-more" onClick={loadMore}>
+            Load more
+          </button>
+        )}
+      </div>
+
+      {cite && (
+        <Suspense fallback={<div className="slideover-scrim" />}>
+          <SourceSlideOver
+            versionId={cite.versionId}
+            page={cite.page}
+            quote={cite.quote}
+            manualLabel={entries.find((e) => e.versionId === cite.versionId)?.manualLabel ?? 'Source'}
+            onClose={() => setCite(null)}
+          />
+        </Suspense>
+      )}
+    </>
+  )
+}
