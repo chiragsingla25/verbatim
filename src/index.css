@@ -1548,7 +1548,7 @@ mark.cited {
   margin-top: 2px;
 }
 .slideover-quote {
-  margin: 15px 18px;
+  margin: 12px 18px;
   padding: 10px 14px;
   border-left: 3px solid var(--om-accent-primary);
   background: var(--om-accent-primary-bg);
@@ -1558,11 +1558,106 @@ mark.cited {
   line-height: 1.55;
   border-radius: 0 6px 6px 0;
 }
-.slideover-page {
+.slideover-found {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--om-accent-primary);
+  margin-bottom: 4px;
+}
+.slideover-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--om-border-subtle);
+}
+.slideover-search {
   flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  padding: 7px 11px;
+}
+.slideover-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.slideover-nav button.secondary {
+  padding: 5px 10px;
+  font-size: 13px;
+  line-height: 1;
+}
+.slideover-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--om-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.slideover-results {
+  max-height: 34vh;
+  overflow: auto;
+  padding: 6px 10px 10px;
+  border-bottom: 1px solid var(--om-border-subtle);
+  background: var(--om-bg-surface);
+}
+.slideover-result {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  color: var(--om-text-prose);
+  border: none;
+  border-radius: var(--om-radius-sm);
+  padding: 7px 8px;
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.slideover-result:hover {
+  background: var(--om-bg-hover);
+}
+.slideover-result .sr-page {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--om-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.slideover-result .sr-snip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slideover-pages {
+  flex: 1;
+  min-height: 0; /* let this flex child actually scroll instead of growing to content */
   overflow: auto;
   padding: 18px;
   background: var(--om-bg-mat);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  scroll-behavior: smooth;
+}
+.pdf-page {
+  position: relative;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid var(--om-border-card);
+  border-radius: 4px;
+  box-shadow: var(--om-shadow-card);
+  overflow: hidden;
+}
+.pdf-page canvas {
+  display: block;
 }
 .slideover-note {
   color: var(--om-text-tertiary);
@@ -1570,20 +1665,6 @@ mark.cited {
 }
 .slideover-note.err {
   color: var(--om-accent-error);
-}
-.pdf-fit {
-  margin: 0 auto;
-  overflow: hidden;
-  background: #fff;
-  border: 1px solid var(--om-border-card);
-  border-radius: 4px;
-  box-shadow: var(--om-shadow-card);
-}
-.pdf-frame {
-  position: relative;
-}
-.pdf-frame canvas {
-  display: block;
 }
 .pdf-highlight {
   position: absolute;
@@ -1728,6 +1809,22 @@ mark.cited {
   .auth-form {
     width: 100%;
     max-width: 380px;
+  }
+
+  /* Citation viewer: tighten the chrome so the page area isn't starved on a phone */
+  .slideover-head {
+    padding: 11px 14px;
+  }
+  .slideover-toolbar {
+    flex-wrap: wrap;
+    padding: 8px 14px;
+  }
+  .slideover-search {
+    flex: 1 1 100%;
+    order: 2;
+  }
+  .slideover-pages {
+    padding: 12px;
   }
 }
 

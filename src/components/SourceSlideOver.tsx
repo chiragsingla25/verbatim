@@ -1,18 +1,22 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as pdfjs from 'pdfjs-dist'
-import type { PDFPageProxy } from 'pdfjs-dist'
+import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist'
 import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker'
-import { sourcePdfUrl } from '../lib/api'
+import { type ManualTextRow, manualText, sourcePdfUrl } from '../lib/api'
 
-// `?worker` (not `?url`) so vite bundles the worker through its own pipeline —
-// that's where vite.config.ts's `worker.rollupOptions.output.banner` injects the
-// Promise.withResolvers polyfill the worker needs on older browsers.
+// `?worker` (not `?url`) so vite bundles the worker through its own pipeline — that's where
+// vite.config.ts's worker banner injects the Promise.withResolvers polyfill older browsers need.
 pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker()
 
 type Rect = { left: number; top: number; width: number; height: number }
 
-// Slide-over showing the cited source page rendered with pdf.js, the quoted passage
-// highlighted where it can be located in the page's text.
+const WINDOW = 3 // pages rendered on each side of the visible page
+const ZOOMS = [0.6, 0.8, 1, 1.25, 1.5, 2]
+const DPR = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1
+
+// Read-only in-app view of a cited manual: the whole document, scroll / zoom / jump by page /
+// search the text, with the cited quote highlighted on its page. The PDF is the caller's own
+// (active manual) via a short-TTL signed URL; the search index is the version's chunk text.
 export function SourceSlideOver({
   versionId,
   page,
@@ -26,109 +30,336 @@ export function SourceSlideOver({
   manualLabel: string
   onClose: () => void
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const holderRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [detail, setDetail] = useState('')
-  const [highlights, setHighlights] = useState<Rect[]>([])
-  const [buffer, setBuffer] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
-  const [fit, setFit] = useState(1)
+  const [current, setCurrent] = useState(Math.max(1, page))
+  const [zoomIdx, setZoomIdx] = useState(2) // → 1.0
+  const [rows, setRows] = useState<ManualTextRow[]>([])
+  const [q, setQ] = useState('')
+  const [flash, setFlash] = useState(true)
+  const [availW, setAvailW] = useState(0)
 
+  const zoom = ZOOMS[zoomIdx]
+  const numPages = pdf?.numPages ?? 0
+
+  // Width available to a page = the scroll area minus its padding. Re-measured on resize
+  // so pages render at display resolution (highlights stay pixel-aligned, no CSS scaling).
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const measure = () => setAvailW(Math.max(0, el.clientWidth - 36))
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [status])
+
+  // Esc closes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // Load the PDF once (+ the chunk text for search).
   useEffect(() => {
-    let cancelled = false
+    let dead = false
+    setStatus('loading')
     ;(async () => {
       try {
-        const url = await sourcePdfUrl(versionId)
-        const pdf = await pdfjs.getDocument({ url }).promise
-        const p = Math.min(Math.max(page, 1), pdf.numPages)
-        const pg = await pdf.getPage(p)
-        if (cancelled) return
-
-        const scale = 2
-        const viewport = pg.getViewport({ scale })
-        const canvas = canvasRef.current!
-        const ctx = canvas.getContext('2d')!
-        canvas.width = viewport.width
-        canvas.height = viewport.height
-        setBuffer({ w: viewport.width, h: viewport.height })
-        const avail = holderRef.current?.clientWidth ?? 480
-        setFit(Math.min(1, avail / viewport.width))
-        await pg.render({ canvasContext: ctx, viewport }).promise
-        if (cancelled) return
-
-        setHighlights(await locateQuote(pg, quote, scale, viewport.height))
+        const [url, textRows] = await Promise.all([
+          sourcePdfUrl(versionId),
+          manualText(versionId).catch(() => [] as ManualTextRow[]), // search is best-effort
+        ])
+        const doc = await pdfjs.getDocument({ url }).promise
+        if (dead) return
+        setPdf(doc)
+        setRows(textRows)
         setStatus('ready')
       } catch (e) {
-        if (!cancelled) {
+        if (!dead) {
           setStatus('error')
           setDetail(e instanceof Error ? e.message : String(e))
         }
       }
     })()
     return () => {
-      cancelled = true
+      dead = true
     }
-  }, [versionId, page, quote])
+  }, [versionId])
+
+  // Once pages exist, jump to the cited page and flash a confirmation.
+  const jumpTo = useCallback((n: number) => {
+    const land = () =>
+      // instant: a page jump is navigational and must land even when the CSS
+      // scroll-behavior:smooth would otherwise animate (and stall in a backgrounded tab).
+      scrollRef.current
+        ?.querySelector<HTMLElement>(`[data-page="${n}"]`)
+        ?.scrollIntoView({ block: 'start', behavior: 'auto' })
+    setCurrent(n)
+    land()
+    // re-land after the target page swaps its placeholder for a real canvas and the
+    // layout above it settles.
+    setTimeout(land, 140)
+    setTimeout(land, 450)
+  }, [])
+
+  useEffect(() => {
+    if (status !== 'ready') return
+    const t = setTimeout(() => jumpTo(Math.max(1, page)), 40)
+    const f = setTimeout(() => setFlash(false), 2400)
+    return () => {
+      clearTimeout(t)
+      clearTimeout(f)
+    }
+  }, [status, page, jumpTo])
+
+  // Zooming changes every page's height — keep the reader on the page they were looking at.
+  const zoomInitDone = useRef(false)
+  useEffect(() => {
+    if (status !== 'ready') return
+    if (!zoomInitDone.current) {
+      zoomInitDone.current = true
+      return
+    }
+    jumpTo(current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomIdx])
+
+  // Track the most-visible page for the "page X of N" readout + the render window.
+  useEffect(() => {
+    const root = scrollRef.current
+    if (status !== 'ready' || !root) return
+    const io = new IntersectionObserver(
+      (entries) => {
+        let best: { n: number; ratio: number } | null = null
+        for (const e of entries) {
+          const n = Number((e.target as HTMLElement).dataset.page)
+          if (!best || e.intersectionRatio > best.ratio) best = { n, ratio: e.intersectionRatio }
+        }
+        if (best && best.ratio > 0) setCurrent(best.n)
+      },
+      { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
+    )
+    root.querySelectorAll('[data-page]').forEach((el) => io.observe(el))
+    return () => io.disconnect()
+    // re-observe once the page elements actually mount (they need pdf + availW)
+  }, [status, numPages, availW])
+
+  const results = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (needle.length < 2) return []
+    return rows
+      .filter((r) => r.content.toLowerCase().includes(needle))
+      .slice(0, 40)
+      .map((r) => {
+        const i = r.content.toLowerCase().indexOf(needle)
+        const from = Math.max(0, i - 30)
+        return {
+          page: r.page,
+          snippet: (from > 0 ? '…' : '') + r.content.slice(from, i + needle.length + 40).trim() + '…',
+        }
+      })
+  }, [q, rows])
 
   return (
     <div className="slideover-scrim" onClick={onClose}>
-      <aside className="slideover" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Source">
+      <aside
+        className="slideover"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Source manual"
+      >
         <header className="slideover-head">
           <div>
-            <div className="slideover-title">Source · page {page}</div>
-            <div className="slideover-sub">{manualLabel}</div>
+            <div className="slideover-title">Source · {manualLabel}</div>
+            <div className="slideover-sub">
+              {status === 'ready' ? `Page ${current} of ${numPages}` : 'Opening the manual…'}
+            </div>
           </div>
           <button className="link" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </header>
 
-        {quote.trim().length > 0 && (
-          <blockquote className="slideover-quote">“{quote}”</blockquote>
+        <div className="slideover-toolbar">
+          <input
+            className="slideover-search"
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search this manual…"
+            aria-label="Search this manual"
+          />
+          <div className="slideover-nav">
+            <button
+              className="secondary"
+              disabled={current <= 1}
+              onClick={() => jumpTo(current - 1)}
+              aria-label="Previous page"
+            >
+              ‹
+            </button>
+            <button
+              className="secondary"
+              disabled={current >= numPages}
+              onClick={() => jumpTo(current + 1)}
+              aria-label="Next page"
+            >
+              ›
+            </button>
+            <span className="slideover-zoom">
+              <button
+                className="secondary"
+                disabled={zoomIdx <= 0}
+                onClick={() => setZoomIdx((z) => Math.max(0, z - 1))}
+                aria-label="Zoom out"
+              >
+                −
+              </button>
+              <span>{Math.round(zoom * 100)}%</span>
+              <button
+                className="secondary"
+                disabled={zoomIdx >= ZOOMS.length - 1}
+                onClick={() => setZoomIdx((z) => Math.min(ZOOMS.length - 1, z + 1))}
+                aria-label="Zoom in"
+              >
+                +
+              </button>
+            </span>
+          </div>
+        </div>
+
+        {q.trim().length >= 2 && (
+          <div className="slideover-results">
+            {results.length === 0 ? (
+              <p className="slideover-note">No matches for “{q.trim()}”.</p>
+            ) : (
+              results.map((r, i) => (
+                <button
+                  key={i}
+                  className="slideover-result"
+                  onClick={() => {
+                    jumpTo(r.page)
+                    setQ('')
+                  }}
+                >
+                  <span className="sr-page">p.{r.page}</span>
+                  <span className="sr-snip">{r.snippet}</span>
+                </button>
+              ))
+            )}
+          </div>
         )}
 
-        <div className="slideover-page" ref={holderRef}>
-          {status === 'loading' && <p className="slideover-note">Rendering page…</p>}
+        {quote.trim().length > 0 && flash && (
+          <blockquote className="slideover-quote">
+            <span className="slideover-found">Found on page {page}</span>“{quote}”
+          </blockquote>
+        )}
+
+        <div className="slideover-pages" ref={scrollRef}>
+          {status === 'loading' && <p className="slideover-note">Opening the manual…</p>}
           {status === 'error' && (
-            <p className="slideover-note err">
-              Couldn’t render the source page. {detail}
-            </p>
+            <p className="slideover-note err">Couldn’t open the source. {detail}</p>
           )}
-          <div
-            className="pdf-fit"
-            style={{
-              width: buffer.w * fit || undefined,
-              height: buffer.h * fit || undefined,
-            }}
-            hidden={status !== 'ready'}
-          >
-            <div
-              className="pdf-frame"
-              style={{ width: buffer.w, transform: `scale(${fit})`, transformOrigin: 'top left' }}
-            >
-              <canvas ref={canvasRef} />
-              {highlights.map((r, i) => (
-                <div
-                  key={i}
-                  className="pdf-highlight"
-                  style={{ left: r.left, top: r.top, width: r.width, height: r.height }}
-                />
-              ))}
-            </div>
-          </div>
-          {status === 'ready' && highlights.length === 0 && (
-            <p className="slideover-note">
-              (Passage is on this page; exact position couldn’t be pinpointed.)
-            </p>
-          )}
+          {pdf &&
+            availW > 0 &&
+            Array.from({ length: numPages }, (_, i) => i + 1).map((n) => (
+              <PdfPage
+                key={n}
+                pdf={pdf}
+                n={n}
+                zoom={zoom}
+                availW={availW}
+                active={Math.abs(n - current) <= WINDOW}
+                quote={n === Math.max(1, page) ? quote : ''}
+              />
+            ))}
         </div>
       </aside>
+    </div>
+  )
+}
+
+// One page. Renders its canvas at display resolution (fit to `availW` × `zoom`, capped)
+// only while `active` (inside the scroll window), and clears it otherwise so a long
+// manual never holds N canvases. `dims` keeps a fixed placeholder size so the scrollbar
+// and page anchors stay put even before/after a page renders.
+function PdfPage({
+  pdf,
+  n,
+  zoom,
+  availW,
+  active,
+  quote,
+}: {
+  pdf: PDFDocumentProxy
+  n: number
+  zoom: number
+  availW: number
+  active: boolean
+  quote: string
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null)
+  const [highlights, setHighlights] = useState<Rect[]>([])
+
+  useEffect(() => {
+    let dead = false
+    let task: RenderTask | null = null
+    const canvas = canvasRef.current
+    ;(async () => {
+      const pg = await pdf.getPage(n)
+      if (dead) return
+      const base = pg.getViewport({ scale: 1 })
+      // CSS size: fit the column, then apply zoom (allow overflow-x past 100% when zoomed).
+      const cssW = Math.min(availW, base.width) * zoom
+      const cssScale = cssW / base.width
+      setDims({ w: cssW, h: base.height * cssScale })
+      if (!active || !canvas) return
+      const viewport = pg.getViewport({ scale: cssScale * DPR })
+      canvas.width = viewport.width
+      canvas.height = viewport.height
+      canvas.style.width = `${cssW}px`
+      canvas.style.height = `${base.height * cssScale}px`
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      task = pg.render({ canvasContext: ctx, viewport })
+      try {
+        await task.promise
+      } catch {
+        return // render cancelled by a zoom / window change
+      }
+      if (dead) return
+      // highlight rects are in CSS px (scale = cssScale, height = the CSS height)
+      if (quote) {
+        setHighlights(await locateQuote(pg, quote, cssScale, base.height * cssScale))
+      }
+    })()
+    return () => {
+      dead = true
+      task?.cancel()
+      if (canvas && !active) {
+        canvas.width = 0
+        canvas.height = 0
+      }
+    }
+  }, [pdf, n, zoom, availW, active, quote])
+
+  return (
+    <div className="pdf-page" data-page={n} style={{ width: dims?.w, minHeight: dims?.h ?? 480 }}>
+      <canvas ref={canvasRef} hidden={!active} />
+      {active &&
+        highlights.map((r, i) => (
+          <div
+            key={i}
+            className="pdf-highlight"
+            style={{ left: r.left, top: r.top, width: r.width, height: r.height }}
+          />
+        ))}
     </div>
   )
 }
@@ -165,7 +396,6 @@ async function locateQuote(
   const nJoined = norm(joined)
   const at = nJoined.indexOf(target)
   if (at < 0) {
-    // try a shorter anchor (first 40 chars) for near-verbatim quotes
     const anchor = target.slice(0, 40)
     const a2 = nJoined.indexOf(anchor)
     if (a2 < 0) return []
@@ -174,8 +404,6 @@ async function locateQuote(
   return rectsForRange(at, at + target.length)
 
   function rectsForRange(s: number, e: number): Rect[] {
-    // norm() collapses whitespace, so indices roughly track joined; walk items by
-    // cumulative raw length and take any that overlap [s, e] in normalized space.
     const rects: Rect[] = []
     let cum = 0
     for (let i = 0; i < items.length; i++) {

@@ -109,6 +109,24 @@ export async function citedChunkContent(chunkIds: string[]): Promise<Record<stri
   return out
 }
 
+// Every chunk's text + page for a version, for the citation viewer's "search this manual"
+// (client-side substring match). SOURCE DISPLAY ONLY — read under the caller's JWT, gated
+// by the same `document_chunks_select_via_version` RLS. Not a retrieval path.
+export type ManualTextRow = { page: number; content: string; section: string | null }
+export async function manualText(versionId: string): Promise<ManualTextRow[]> {
+  const { data, error } = await supabase
+    .from('document_chunks')
+    .select('page, content, section')
+    .eq('version_id', versionId)
+    .order('page', { ascending: true })
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as ManualTextRow[]).map((r) => ({
+    page: r.page,
+    content: r.content ?? '',
+    section: r.section ?? null,
+  }))
+}
+
 // Short-TTL signed URL to a version's source PDF (RLS: readable for an active version).
 export async function sourcePdfUrl(versionId: string): Promise<string> {
   const path = `v/${versionId}/source.pdf`
