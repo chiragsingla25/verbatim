@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useState } from 'react'
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { getReviewData, publishVersion, rejectVersion, type ReviewData } from '../lib/api'
+import {
+  deleteVersion,
+  getReviewData,
+  publishVersion,
+  rejectVersion,
+  retryIngest,
+  reuploadSourceUrl,
+  type ReviewData,
+} from '../lib/api'
 
 // Where the Docling ingestion job runs. A pending review is blocked on one of these.
 const INGEST_RUNS_URL = 'https://github.com/chiragsingla25/verbatim/actions/workflows/ingest.yml'
@@ -11,10 +19,11 @@ function minutesSince(iso: string): number {
 }
 
 // The contributor reviews what ingestion extracted (tables, OCR quality, flags) against the
-// source PDF, then publishes (status -> active) or rejects.
+// source PDF, then publishes / rejects / retries / replaces the file / deletes the version.
 export function ReviewUpload() {
   const { versionId } = useParams()
   const navigate = useNavigate()
+  const fileInput = useRef<HTMLInputElement>(null)
   const [data, setData] = useState<ReviewData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -37,20 +46,43 @@ export function ReviewUpload() {
     return (
       <div className="page-body">
         <div className="msg err">{error}</div>
+        <button className="secondary" onClick={() => navigate('/', { replace: true })}>
+          ← Manual library
+        </button>
       </div>
     )
   if (!data) return <div className="page-body">Loading…</div>
 
   const { version, job, tableChunks, totalChunks, sourceUrl } = data
-  const canDecide = job?.state === 'review' && version.status === 'pending'
+  const pending = version.status === 'pending'
+  const canDecide = job?.state === 'review' && pending
   const running = job != null && ['queued', 'parsing'].includes(job.state)
   const elapsedMin = job ? minutesSince(job.startedAt) : 0
   const idleMin = job ? minutesSince(job.updatedAt) : 0
   // The server-side watchdog fails a wedged job, but only after its budget; flag it
   // in the UI sooner so the reviewer isn't left staring at a spinner.
   const looksStuck = job?.state === 'parsing' && idleMin >= 20
+  // Recovery actions are available on a pending version once ingestion is terminal-bad
+  // (failed / rejected) or is clearly wedged.
+  const canRecover =
+    pending && (job == null || ['failed', 'rejected'].includes(job.state) || looksStuck)
 
-  async function decide(fn: () => Promise<void>, label: string) {
+  // Stays on the page and re-polls (retry / replace).
+  async function run(fn: () => Promise<unknown>, label: string) {
+    setBusy(true)
+    setError(null)
+    try {
+      await fn()
+      load()
+    } catch (e) {
+      setError(`${label}: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Navigates away on success (publish / reject / delete).
+  async function leave(fn: () => Promise<unknown>, label: string) {
     setBusy(true)
     setError(null)
     try {
@@ -60,6 +92,37 @@ export function ReviewUpload() {
       setError(`${label}: ${e instanceof Error ? e.message : String(e)}`)
       setBusy(false)
     }
+  }
+
+  function reject() {
+    const reason = window.prompt('Reason for rejecting (optional):') ?? ''
+    leave(() => rejectVersion(version.id, reason), 'reject')
+  }
+
+  function del() {
+    if (
+      !window.confirm(
+        'Delete this version, its source file, and everything ingestion extracted? This cannot be undone.',
+      )
+    )
+      return
+    leave(() => deleteVersion(version.id), 'delete')
+  }
+
+  async function onFilePicked(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file after an error
+    if (!file) return
+    await run(async () => {
+      const { url } = await reuploadSourceUrl(version.id)
+      const put = await fetch(url, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/pdf', 'x-upsert': 'true' },
+        body: file,
+      })
+      if (!put.ok) throw new Error(`upload failed (HTTP ${put.status})`)
+      await retryIngest(version.id)
+    }, 'replace')
   }
 
   return (
@@ -102,13 +165,14 @@ export function ReviewUpload() {
           <div className="msg err">
             <strong>Ingestion failed.</strong> {job.error || 'No error detail was recorded.'}
             <br />
-            Check the source file, then re-upload the manual from the library to try again.
+            Fix the source file if needed, then <strong>Retry</strong> or <strong>Replace the
+            PDF</strong> below.
           </div>
         )}
         {job?.state === 'rejected' && (
           <div className="msg info">
             This upload was rejected{job.error ? `: ${job.error}` : ''}. Its extracted data has
-            been discarded.
+            been discarded — <strong>Retry</strong> or <strong>Delete</strong> below.
           </div>
         )}
         {running && (
@@ -124,8 +188,8 @@ export function ReviewUpload() {
             {looksStuck && (
               <>
                 <br />
-                This has run unusually long. If it doesn’t finish or fail within a few
-                minutes, re-upload the manual.
+                This has run unusually long — use <strong>Retry</strong> or{' '}
+                <strong>Delete</strong> below.
               </>
             )}
           </div>
@@ -173,23 +237,43 @@ export function ReviewUpload() {
           </figure>
         ))}
 
-        {canDecide && (
-          <div style={{ marginTop: '2rem', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-            <button disabled={busy} onClick={() => decide(() => publishVersion(version.id), 'publish')}>
-              {busy ? 'Working…' : 'Approve & publish version'}
-            </button>
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => {
-                const reason = window.prompt('Reason for rejecting (optional):') ?? ''
-                decide(() => rejectVersion(version.id, reason), 'reject')
-              }}
-            >
+        {pending && (canDecide || canRecover) && (
+          <div className="review-actions">
+            {canDecide && (
+              <button disabled={busy} onClick={() => leave(() => publishVersion(version.id), 'publish')}>
+                {busy ? 'Working…' : 'Approve & publish version'}
+              </button>
+            )}
+            {canRecover && (
+              <button disabled={busy} onClick={() => run(() => retryIngest(version.id), 'retry')}>
+                Retry ingestion
+              </button>
+            )}
+            {(canDecide || canRecover) && (
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => fileInput.current?.click()}
+              >
+                Replace PDF…
+              </button>
+            )}
+            <button className="secondary" disabled={busy} onClick={reject}>
               Reject upload
             </button>
+            <button className="danger" disabled={busy} onClick={del}>
+              Delete version
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/pdf"
+              hidden
+              onChange={onFilePicked}
+            />
           </div>
         )}
+
         {version.status === 'active' && (
           <div className="msg ok" style={{ marginTop: '2rem' }}>
             Published — students can now ask questions against this version.

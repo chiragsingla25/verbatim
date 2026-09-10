@@ -144,6 +144,8 @@ export type LibraryVersion = {
   instrument: { name: string; slug: string } | null
   // The newer version that supersedes this one (its supersedes_id points here), if visible.
   supersededBy: VersionRef | null
+  // Latest ingest job state — for the "Your uploads in progress" recovery affordances.
+  ingestState: string | null
 }
 
 // ── History / "My answers" (v1.1) ──────────────────────────────────────────
@@ -214,12 +216,15 @@ type RawVersionRow = {
   status: LibraryVersion['status']
   supersedes_id: string | null
   instrument: { name: string; slug: string } | null
+  ingest_jobs: { state: string; created_at: string }[] | null
 }
 
 export async function listVisibleVersions(): Promise<LibraryVersion[]> {
   const { data, error } = await supabase
     .from('manual_versions')
-    .select('id, title, edition, year, publisher, status, supersedes_id, instrument:instruments(name, slug)')
+    .select(
+      'id, title, edition, year, publisher, status, supersedes_id, instrument:instruments(name, slug), ingest_jobs(state, created_at)',
+    )
     .order('status')
     .order('title')
   if (error) throw new Error(error.message)
@@ -230,17 +235,23 @@ export async function listVisibleVersions(): Promise<LibraryVersion[]> {
   for (const r of rows) {
     if (r.supersedes_id) supersederOf.set(r.supersedes_id, { id: r.id, title: r.title })
   }
-  return rows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    edition: r.edition,
-    year: r.year,
-    publisher: r.publisher,
-    status: r.status,
-    supersedesId: r.supersedes_id,
-    instrument: r.instrument,
-    supersededBy: supersederOf.get(r.id) ?? null,
-  }))
+  return rows.map((r) => {
+    const latestJob = (r.ingest_jobs ?? [])
+      .slice()
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
+    return {
+      id: r.id,
+      title: r.title,
+      edition: r.edition,
+      year: r.year,
+      publisher: r.publisher,
+      status: r.status,
+      supersedesId: r.supersedes_id,
+      instrument: r.instrument,
+      supersededBy: supersederOf.get(r.id) ?? null,
+      ingestState: latestJob?.state ?? null,
+    }
+  })
 }
 
 export type ReviewData = {

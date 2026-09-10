@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { listVisibleVersions, type LibraryVersion } from '../lib/api'
+import { deleteVersion, listVisibleVersions, type LibraryVersion } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
 // The manual library (Library artboard). RLS returns status='active' for anyone, plus the
@@ -10,13 +10,30 @@ export function Library() {
   const { role } = useAuth()
   const [rows, setRows] = useState<LibraryVersion[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
   const canUpload = role === 'contributor' || role === 'admin'
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     listVisibleVersions()
       .then(setRows)
       .catch((e) => setError(String(e.message ?? e)))
   }, [])
+
+  useEffect(reload, [reload])
+
+  async function discard(v: LibraryVersion) {
+    if (!window.confirm(`Delete “${v.title}” and its uploaded file? This cannot be undone.`)) return
+    setError(null)
+    setBusyId(v.id)
+    try {
+      await deleteVersion(v.id)
+      reload()
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   const active = rows?.filter((v) => v.status === 'active') ?? []
   const mine = rows?.filter((v) => v.status !== 'active') ?? []
@@ -107,10 +124,19 @@ export function Library() {
                 <span>
                   <span className="pill green">Public domain</span>
                 </span>
-                <span>
+                <span className="lib-pending-actions">
                   <Link to={`/review/${v.id}`} className="r-review">
-                    {v.status} · Review →
+                    {v.ingestState === 'failed' ? 'failed' : v.status} · Review →
                   </Link>
+                  {(v.ingestState === 'failed' || v.ingestState === 'rejected') && (
+                    <button
+                      className="danger sm"
+                      disabled={busyId === v.id}
+                      onClick={() => discard(v)}
+                    >
+                      Delete
+                    </button>
+                  )}
                 </span>
               </div>
             ))}

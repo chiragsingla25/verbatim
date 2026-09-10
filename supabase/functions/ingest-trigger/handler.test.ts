@@ -122,6 +122,16 @@ Deno.test('403 when a non-owner non-admin triggers', async () => {
   assertEquals(dispatched, false)
 })
 
+Deno.test('non-owner gets 403 even for a non-pending version (no status leak)', async () => {
+  const h = buildHandler({
+    env: baseEnv,
+    admin: fakeAdmin({ version: { id: VID, status: 'archived', created_by: OWNER } }),
+    getCaller: asCaller({ id: 'someone-else', role: 'contributor' }),
+    dispatch: () => Promise.resolve(204),
+  } as Deps)
+  assertEquals((await h(req({ versionId: VID }))).status, 403)
+})
+
 Deno.test('admin may trigger someone else’s version', async () => {
   const h = buildHandler({
     env: baseEnv,

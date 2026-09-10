@@ -247,6 +247,32 @@ button.secondary {
 button.secondary:hover {
   background: var(--om-bg-hover);
 }
+button.danger {
+  background: var(--om-bg-surface);
+  color: var(--om-accent-error);
+  border-color: var(--om-accent-error);
+}
+button.danger:hover {
+  background: var(--om-accent-error);
+  color: #fff;
+}
+button.danger.sm {
+  padding: 5px 11px;
+  font-size: 12px;
+}
+.review-actions {
+  margin-top: 2rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.lib-pending-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
 button.link {
   background: none;
   border: none;

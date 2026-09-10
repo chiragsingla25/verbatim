@@ -68,11 +68,13 @@ export function buildHandler(deps: Deps) {
       .maybeSingle()
     if (vErr) return json(500, { error: `version lookup: ${vErr.message}` })
     if (!version) return json(404, { error: `no manual_versions row for ${versionId}` })
-    if (version.status !== 'pending') {
-      return json(409, { error: `version is ${version.status}, not pending` })
-    }
+    // authz before status — a non-owner learns nothing about a version's state (matches
+    // delete_manual_version / publish_manual_version).
     if (version.created_by !== caller.id && caller.role !== 'admin') {
       return json(403, { error: 'not permitted to trigger ingestion for this version' })
+    }
+    if (version.status !== 'pending') {
+      return json(409, { error: `version is ${version.status}, not pending` })
     }
 
     const { data: job, error: jErr } = await deps.admin
