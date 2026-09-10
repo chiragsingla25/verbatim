@@ -10,10 +10,25 @@ export function AnswerCard({
   manual,
   onCite,
 }: {
-  result: Pick<AnswerResult, 'answer' | 'citations' | 'abstained'>
+  result: Pick<AnswerResult, 'answer' | 'citations' | 'abstained'> & { kind?: AnswerResult['kind'] }
   manual: string
   onCite: (page: number, quote: string) => void
 }) {
+  // A "meta" answer is about the conversation itself — no manual claim, no citation.
+  if (result.kind === 'meta') {
+    return (
+      <div className="meta-card">
+        <div className="a-head">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          From your conversation
+        </div>
+        <p>{result.answer}</p>
+      </div>
+    )
+  }
+
   if (result.abstained) {
     return (
       <div className="abstain-card">

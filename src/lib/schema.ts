@@ -24,6 +24,9 @@ export const answerResultSchema = z.object({
   // v1.2: which conversation + turn this answer belongs to.
   sessionId: z.string(),
   turn: z.number().int(),
+  // grounded = >=1 citation to this version; abstained = "not found"; meta = about the
+  // conversation itself (no citation, no manual claim).
+  kind: z.enum(['grounded', 'abstained', 'meta']),
 })
 
 export const verifyResultSchema = z.object({
@@ -43,6 +46,7 @@ export const answerDraftSchema = z.object({
 
 export type Citation = z.infer<typeof citationSchema>
 export type AnswerResult = z.infer<typeof answerResultSchema>
+export type AnswerKind = AnswerResult['kind']
 export type VerifyResult = z.infer<typeof verifyResultSchema>
 export type AnswerDraft = z.infer<typeof answerDraftSchema>
 

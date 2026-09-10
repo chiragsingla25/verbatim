@@ -165,7 +165,7 @@ export type LibraryVersion = {
 // questions. The row → HistoryEntry transform (+ its types) lives in ./history so it can
 // be unit-tested without the supabase client.
 const HISTORY_SELECT =
-  'id, question, answer, abstained, citations, version_id, session_id, turn, at, manual_versions(title, status, instrument:instruments(name))'
+  'id, question, answer, abstained, citations, version_id, session_id, turn, kind, at, manual_versions(title, status, instrument:instruments(name))'
 
 async function currentUserId(): Promise<string> {
   const { data: sess } = await supabase.auth.getSession()

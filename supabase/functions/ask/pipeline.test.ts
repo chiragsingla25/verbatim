@@ -35,6 +35,8 @@ function makeDeps(o: Overrides = {}) {
       return Promise.resolve()
     },
     nextTurn: () => Promise.resolve(1),
+    getHistory: () => Promise.resolve({ summary: '', summaryThroughTurn: 0, priorTurns: [] }),
+    saveSummary: () => Promise.resolve(),
     now: () => 1000,
     ...o,
   }
@@ -144,4 +146,139 @@ Deno.test('one retry on non-JSON draft, then succeeds', async () => {
   const r = await ask({ versionId: VID, sessionId: SID, question: 'q' }, deps)
   assertEquals(calls, 2)
   assertEquals(r.abstained, false)
+})
+
+// ── v1.2 conversational paths ───────────────────────────────────────────────
+import {
+  CONDENSE_SYSTEM,
+  META_SYSTEM,
+  SUMMARY_SYSTEM,
+  VERIFY_SYSTEM,
+} from '../_shared/prompt.ts'
+
+const priorTurn = (turn: number, q: string, a: string) => ({ turn, question: q, answer: a })
+
+Deno.test('follow-up: condense rewrites the query; still grounded + verified', async () => {
+  let seenRetrievalQ = ''
+  const { deps } = makeDeps({
+    getHistory: () =>
+      Promise.resolve({
+        summary: '',
+        summaryThroughTurn: 0,
+        priorTurns: [priorTurn(1, 'What are the PSS-10 severity bands?', 'Low, moderate, high.')],
+      }),
+    embed: (text: string) => {
+      seenRetrievalQ = text
+      return Promise.resolve(new Array(384).fill(0))
+    },
+    chat: (system: string) => {
+      if (system === CONDENSE_SYSTEM)
+        return Promise.resolve('{"standalone":"PSS-10 cutoff score for the high severity band"}')
+      if (system === ANSWER_SYSTEM)
+        return Promise.resolve(
+          '{"answer":"The high band starts at 27.","citations":[{"chunkId":"c1","page":1,"quote":"summing items"}],"abstained":false}',
+        )
+      return Promise.resolve(
+        '{"supported":true,"unsupportedClaims":[],"revisedAnswer":"The high band starts at 27."}',
+      )
+    },
+  })
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'and the cutoff for that?' }, deps)
+  assertEquals(seenRetrievalQ.includes('cutoff'), true) // used the condensed query, not the raw follow-up
+  assertEquals(r.abstained, false)
+  assertEquals(r.kind, 'grounded')
+})
+
+Deno.test('meta: condense returns __META__ -> answered from transcript, no retrieval/verify', async () => {
+  let retrievalCalled = false
+  let verifyCalled = false
+  const { deps, logged } = makeDeps({
+    getHistory: () =>
+      Promise.resolve({
+        summary: '',
+        summaryThroughTurn: 0,
+        priorTurns: [priorTurn(1, 'How is the PSS scored?', 'By summing items.')],
+      }),
+    matchChunks: () => {
+      retrievalCalled = true
+      return Promise.resolve([])
+    },
+    chat: (system: string) => {
+      if (system === CONDENSE_SYSTEM) return Promise.resolve('{"standalone":"__META__"}')
+      if (system === META_SYSTEM)
+        return Promise.resolve('{"answer":"You asked how the PSS is scored."}')
+      if (system === VERIFY_SYSTEM) {
+        verifyCalled = true
+        return Promise.resolve('{"supported":true,"unsupportedClaims":[],"revisedAnswer":""}')
+      }
+      return Promise.resolve('{}')
+    },
+  })
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'what did I just ask?' }, deps)
+  assertEquals(r.kind, 'meta')
+  assertEquals(r.abstained, false)
+  assertEquals(r.citations, [])
+  assertEquals(retrievalCalled, false)
+  assertEquals(verifyCalled, false)
+  assertEquals(logged[0].kind, 'meta')
+})
+
+Deno.test('no-smuggle: verify strips a transcript-only claim -> abstain', async () => {
+  const { deps } = makeDeps({
+    getHistory: () =>
+      Promise.resolve({
+        summary: '',
+        summaryThroughTurn: 0,
+        priorTurns: [priorTurn(1, 'PHQ-9 moderate cutoff?', 'A score of 10.')],
+      }),
+    chat: (system: string) => {
+      if (system === CONDENSE_SYSTEM)
+        return Promise.resolve('{"standalone":"GAD-7 moderate cutoff score"}')
+      if (system === ANSWER_SYSTEM)
+        // model tries to reuse the PHQ-9 fact from the transcript
+        return Promise.resolve(
+          '{"answer":"GAD-7 moderate is 10, same as the PHQ-9.","citations":[{"chunkId":"c1","page":1,"quote":"summing items"}],"abstained":false}',
+        )
+      // verify (chunks only) can't support it -> nothing left
+      return Promise.resolve(
+        `{"supported":false,"unsupportedClaims":["GAD-7 moderate is 10"],"revisedAnswer":"Not found in this version."}`,
+      )
+    },
+  })
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'and for GAD-7?' }, deps)
+  assertEquals(r.abstained, true)
+  assertEquals(r.kind, 'abstained')
+})
+
+Deno.test('long history: older turns fold into the summary (saveSummary called)', async () => {
+  let saved: { summary: string; through: number } | null = null
+  const big = 'x'.repeat(3000)
+  const { deps } = makeDeps({
+    getHistory: () =>
+      Promise.resolve({
+        summary: '',
+        summaryThroughTurn: 0,
+        priorTurns: [
+          priorTurn(1, 'q1 ' + big, 'a1 ' + big),
+          priorTurn(2, 'q2 ' + big, 'a2 ' + big),
+          priorTurn(3, 'q3', 'a3'),
+        ],
+      }),
+    saveSummary: (_sid: string, summary: string, through: number) => {
+      saved = { summary, through }
+      return Promise.resolve()
+    },
+    chat: (system: string) => {
+      if (system === SUMMARY_SYSTEM) return Promise.resolve('{"summary":"Discussed q1 and q2."}')
+      if (system === CONDENSE_SYSTEM) return Promise.resolve('{"standalone":"q4 standalone"}')
+      if (system === ANSWER_SYSTEM)
+        return Promise.resolve(
+          '{"answer":"ok.","citations":[{"chunkId":"c1","page":1,"quote":"summing items"}],"abstained":false}',
+        )
+      return Promise.resolve('{"supported":true,"unsupportedClaims":[],"revisedAnswer":"ok."}')
+    },
+  })
+  await ask({ versionId: VID, sessionId: SID, question: 'q4?' }, deps)
+  assertEquals(saved !== null, true)
+  assertEquals(saved!.through >= 1, true) // at least turn 1 folded
 })

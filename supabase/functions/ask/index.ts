@@ -74,6 +74,32 @@ Deno.serve(async (req) => {
           if (error) throw new Error(`chat_session_next_turn: ${error.message}`)
           return Number(data)
         },
+        getHistory: async (sid) => {
+          const [{ data: sess }, { data: rows }] = await Promise.all([
+            supabase
+              .from('chat_sessions')
+              .select('summary, summary_through_turn')
+              .eq('id', sid)
+              .maybeSingle(),
+            supabase
+              .from('query_log')
+              .select('turn, question, answer')
+              .eq('session_id', sid)
+              .order('turn', { ascending: true }),
+          ])
+          const through = Number(sess?.summary_through_turn ?? 0)
+          const priorTurns = ((rows ?? []) as { turn: number; question: string; answer: string }[])
+            .filter((r) => r.turn > through)
+            .map((r) => ({ turn: r.turn, question: r.question, answer: r.answer ?? '' }))
+          return { summary: sess?.summary ?? '', summaryThroughTurn: through, priorTurns }
+        },
+        saveSummary: async (sid, summary, throughTurn) => {
+          const { error } = await supabase
+            .from('chat_sessions')
+            .update({ summary, summary_through_turn: throughTurn })
+            .eq('id', sid)
+          if (error) throw new Error(error.message)
+        },
         matchChunks: async (vid, embedding, k): Promise<RetrievedChunk[]> => {
           const { data, error } = await supabase.rpc('match_chunks', {
             p_version_id: vid,

@@ -17,9 +17,15 @@ import {
 } from '../_shared/schema.ts'
 import {
   ANSWER_SYSTEM,
-  VERIFY_SYSTEM,
   answerUserPrompt,
+  CONDENSE_SYSTEM,
+  condenseUserPrompt,
+  META_SYSTEM,
+  metaUserPrompt,
   type RetrievedChunk,
+  SUMMARY_SYSTEM,
+  summaryUserPrompt,
+  VERIFY_SYSTEM,
   verifyUserPrompt,
 } from '../_shared/prompt.ts'
 import { chatJson, type ChatFn } from '../_shared/llm.ts'
@@ -29,7 +35,22 @@ import { chatJson, type ChatFn } from '../_shared/llm.ts'
 // down instead by the lean verify context below.
 const RETRIEVE_K = 12
 
+// v1.2 conversation-context budgets.
+const HISTORY_RECENT_CHARS = 5000 // verbatim recent turns given to the answer step
+const SUMMARY_MAX_CHARS = 1500 // the rolling summary of older turns
+
+export type PriorTurn = { turn: number; question: string; answer: string }
+
+export type SessionHistory = {
+  summary: string
+  summaryThroughTurn: number
+  // every turn strictly before the current one and after summaryThroughTurn, oldest first.
+  priorTurns: PriorTurn[]
+}
+
 export type AskInput = { versionId: string; question: string; sessionId: string }
+
+export type AnswerKind = 'grounded' | 'abstained' | 'meta'
 
 export type AskDeps = {
   embed: (text: string) => Promise<number[]>
@@ -37,6 +58,10 @@ export type AskDeps = {
   chat: ChatFn
   // Start-or-advance the session; returns this turn's 1-based number.
   nextTurn: (sessionId: string, versionId: string, title: string) => Promise<number>
+  // Prior turns + the rolling summary for this session.
+  getHistory: (sessionId: string) => Promise<SessionHistory>
+  // Persist an advanced rolling summary (best-effort — a failure must not fail the answer).
+  saveSummary: (sessionId: string, summary: string, throughTurn: number) => Promise<void>
   logQuery: (row: QueryLogRow) => Promise<void>
   now: () => number
 }
@@ -48,11 +73,51 @@ export type QueryLogRow = {
   question: string
   answer: string
   abstained: boolean
+  kind: AnswerKind
   citations: Citation[]
   retrieved: { chunkId: string; page: number; score: number }[]
   verify: { supported: boolean; unsupportedClaims: string[]; revisedAnswer: string } | null
   latency_ms: number
 }
+
+// Split prior turns into a verbatim recent window (fits the char budget, newest-biased,
+// always keeps at least the latest turn) and the older turns to fold into the summary.
+export function splitHistory(
+  priorTurns: PriorTurn[],
+  budget = HISTORY_RECENT_CHARS,
+): { recent: PriorTurn[]; toFold: PriorTurn[] } {
+  if (priorTurns.length === 0) return { recent: [], toFold: [] }
+  const recent: PriorTurn[] = []
+  let used = 0
+  for (let i = priorTurns.length - 1; i >= 0; i--) {
+    const t = priorTurns[i]
+    const cost = t.question.length + t.answer.length
+    if (recent.length > 0 && used + cost > budget) break
+    recent.unshift(t)
+    used += cost
+  }
+  const cut = priorTurns.length - recent.length
+  return { recent, toFold: priorTurns.slice(0, cut) }
+}
+
+function parseCondense(o: unknown): { standalone: string } | null {
+  if (!o || typeof o !== 'object') return null
+  const s = (o as Record<string, unknown>).standalone
+  return typeof s === 'string' && s.trim() ? { standalone: s.trim() } : null
+}
+function parseSummary(o: unknown): { summary: string } | null {
+  if (!o || typeof o !== 'object') return null
+  const s = (o as Record<string, unknown>).summary
+  return typeof s === 'string' ? { summary: s.trim() } : null
+}
+function parseMeta(o: unknown): { answer: string } | null {
+  if (!o || typeof o !== 'object') return null
+  const a = (o as Record<string, unknown>).answer
+  return typeof a === 'string' && a.trim() ? { answer: a.trim() } : null
+}
+
+const META_FALLBACK =
+  'I can only answer questions about the selected manual. Your full history is in “My answers”.'
 
 // Normalise the model's loose output into the schema shape (coerce page numbers, drop
 // half-formed citations), THEN validate against the zod schema — a boundary object is
@@ -109,6 +174,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
       answer: ABSTAIN_MESSAGE,
       citations: [],
       abstained: true,
+      kind: 'abstained',
       versionId,
       retrieved,
       sessionId,
@@ -121,6 +187,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
       question,
       answer: ABSTAIN_MESSAGE,
       abstained: true,
+      kind: 'abstained',
       citations: [],
       retrieved,
       verify,
@@ -131,19 +198,92 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
 
   if (!question) return abstain([])
 
-  // 1. retrieve (RLS + version filter live in match_chunks)
-  const qvec = await deps.embed(question)
+  // ── v1.2: conversation context ────────────────────────────────────────────
+  // Recent turns verbatim + a rolling summary of older ones. verify never sees either.
+  const hist = await deps.getHistory(sessionId)
+  const { recent, toFold } = splitHistory(hist.priorTurns)
+  let summary = hist.summary
+  let summaryThrough = hist.summaryThroughTurn
+  if (toFold.length > 0) {
+    const rolled = await chatJson(
+      deps.chat,
+      SUMMARY_SYSTEM,
+      summaryUserPrompt(summary, toFold),
+      parseSummary,
+    )
+    if (rolled) {
+      summary = rolled.summary.slice(0, SUMMARY_MAX_CHARS)
+      summaryThrough = toFold[toFold.length - 1].turn
+      try {
+        await deps.saveSummary(sessionId, summary, summaryThrough)
+      } catch (e) {
+        console.error('saveSummary failed:', e instanceof Error ? e.message : e)
+      }
+    }
+    // summariser failed -> keep the old summary; the older turns just aren't in context.
+  }
+  const conv = { summary, recent: recent.map((t) => ({ question: t.question, answer: t.answer })) }
+  const hasHistory = conv.summary.length > 0 || conv.recent.length > 0
+
+  // ── condense the follow-up into a standalone retrieval query, or flag it META ──
+  let retrievalQuery = question
+  let isMeta = false
+  if (hasHistory) {
+    const c = await chatJson(
+      deps.chat,
+      CONDENSE_SYSTEM,
+      condenseUserPrompt(conv, question),
+      parseCondense,
+    )
+    if (c) {
+      if (c.standalone === '__META__') isMeta = true
+      else retrievalQuery = c.standalone
+    }
+  }
+
+  // ── META path: answer from the transcript, no retrieval, no verify, no citation ──
+  if (isMeta) {
+    const m = await chatJson(deps.chat, META_SYSTEM, metaUserPrompt(conv, question), parseMeta)
+    const answer = m?.answer ?? META_FALLBACK
+    const result: AnswerResult = answerResultSchema.parse({
+      answer,
+      citations: [],
+      abstained: false,
+      kind: 'meta',
+      versionId,
+      retrieved: [],
+      sessionId,
+      turn,
+    })
+    await safeLog(deps, {
+      session_id: sessionId,
+      turn,
+      version_id: versionId,
+      question,
+      answer,
+      abstained: false,
+      kind: 'meta',
+      citations: [],
+      retrieved: [],
+      verify: null,
+      latency_ms: deps.now() - started,
+    })
+    return result
+  }
+
+  // 1. retrieve (RLS + version filter live in match_chunks) — uses the condensed query
+  const qvec = await deps.embed(retrievalQuery)
   const hits = await deps.matchChunks(versionId, qvec, RETRIEVE_K)
   const retrieved = hits.map((h) => ({ chunkId: h.chunkId, page: h.page, score: h.score }))
   if (hits.length === 0) return abstain(retrieved)
 
   const validIds = new Set(hits.map((h) => h.chunkId))
 
-  // 2. generate a cited draft
+  // 2. generate a cited draft (the conversation is context for the question only)
   const draft = await chatJson(
     deps.chat,
     ANSWER_SYSTEM,
-    answerUserPrompt(question, hits),
+    answerUserPrompt(question, hits, conv),
     parseDraft,
   )
   if (!draft || draft.abstained) return abstain(retrieved)
@@ -183,6 +323,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
     answer: finalAnswer,
     citations: finalCitations,
     abstained: false,
+    kind: 'grounded',
     versionId,
     retrieved,
     sessionId,
@@ -195,6 +336,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
     question,
     answer: finalAnswer,
     abstained: false,
+    kind: 'grounded',
     citations: finalCitations,
     retrieved,
     verify,

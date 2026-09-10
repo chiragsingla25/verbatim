@@ -22,6 +22,7 @@ import httpx
 
 from common import AskResponse, QuotaExhausted, _Terminal, call_ask, load_config, load_golden
 from abstention import score_abstention
+from conversational import load_conversational, run_conversational
 from cross_version_leak import score_cross_version_leak
 
 
@@ -106,6 +107,17 @@ def _run(argv: list[str] | None = None) -> int:
         print(f"  {'mean':34} {mean:.3f}  (threshold {args.fail_under})")
         if mean < args.fail_under:
             print(f"  >>> RAGAS mean {mean:.3f} < {args.fail_under} — blocking")
+            failed = True
+
+    # ── conversational (v1.2, always blocking — grounding must survive history) ──
+    conv_cases = load_conversational()
+    if conv_cases:
+        conv_rows, conv_ok = run_conversational(cfg, conv_cases)
+        print(f"\n== conversational ({len(conv_rows)} multi-turn cases) ==")
+        for r in conv_rows:
+            print(f"  [{'ok  ' if r.ok else 'FAIL'}] {r.category:9} {r.case_id:34} {r.detail}")
+        if not conv_ok:
+            print("  >>> conversational failure (follow-up / no-smuggle / meta) — blocking")
             failed = True
 
     print("\n" + ("EVALS FAILED" if failed else "EVALS PASSED"))

@@ -23,6 +23,10 @@ export const ANSWER_SYSTEM = [
   '- Quote must be a short verbatim span copied from that chunk.',
   '- If the CONTEXT does not answer the question, abstain. Do NOT use outside knowledge,',
   '  and do NOT answer from a different instrument or edition.',
+  '- You may be given CONVERSATION (a running summary + recent turns) to understand what the',
+  '  question refers to (pronouns, "that", follow-ups). CONVERSATION is context ONLY: never',
+  '  cite it, and never treat anything said earlier as a fact about the manual. If a claim is',
+  '  only in the CONVERSATION and not in the CONTEXT, leave it out.',
   '',
   'Reply with ONE JSON object, nothing else:',
   '{"answer": string, "citations": [{"chunkId": string, "page": integer, "quote": string}],',
@@ -33,7 +37,9 @@ export const ANSWER_SYSTEM = [
 export const VERIFY_SYSTEM = [
   'You are checking a draft ANSWER against the CONTEXT chunks it was written from. A claim is',
   'SUPPORTED only if a chunk states it; anything not in the CONTEXT is UNSUPPORTED, even if it',
-  'is true in general.',
+  'is true in general or was said earlier in the conversation. Check ONLY against the CONTEXT',
+  'below — a claim whose only backing is "the user was told this earlier" or a conversation',
+  'summary is UNSUPPORTED.',
   '',
   'Reply with ONE JSON object, nothing else:',
   '{"supported": boolean, "unsupportedClaims": [string], "revisedAnswer": string}',
@@ -42,6 +48,45 @@ export const VERIFY_SYSTEM = [
   '- revisedAnswer: the ANSWER re-written to keep ONLY the supported claims, verbatim where',
   `  possible. If nothing supported remains, revisedAnswer must be exactly "${ABSTAIN_MESSAGE}".`,
 ].join('\n')
+
+// ── conversational (v1.2) ────────────────────────────────────────────────────
+
+export const CONDENSE_SYSTEM = [
+  'You rewrite a user\'s latest question into a self-contained search query for a psychological',
+  'test manual, using the CONVERSATION to resolve pronouns and ellipsis. Do NOT answer.',
+  'Reply with ONE JSON object: {"standalone": string}.',
+  '- If the latest question is already self-contained, return it unchanged.',
+  '- If it is about the conversation itself (e.g. "what did I ask", "summarise what we covered",',
+  '  "repeat that") and not about the manual, return {"standalone": "__META__"}.',
+].join('\n')
+
+export const SUMMARY_SYSTEM = [
+  'You maintain a running summary of a Q&A conversation about ONE psychological test manual.',
+  'Given the CURRENT SUMMARY and the NEW EXCHANGES, return an updated summary.',
+  'Reply with ONE JSON object: {"summary": string}.',
+  '- Record what was asked and the gist of each answer, in order.',
+  '- Do NOT restate specific scores, cutoffs, percentages, sample sizes or statistics as fact.',
+  '  Refer to them without the numbers — e.g. "discussed the PHQ-9 severity bands", not the',
+  '  band values.',
+  '- Keep it tight — a few sentences.',
+].join('\n')
+
+export const META_SYSTEM = [
+  'You answer a question about THIS conversation only — what the user asked, which topics came',
+  'up, in what order. You are NOT answering from the manual.',
+  'Reply with ONE JSON object: {"answer": string}.',
+  '- Never state a fact about a test instrument. If asked one, say it is in the answers above.',
+  '- Be brief and direct.',
+].join('\n')
+
+type ConvContext = { summary: string; recent: { question: string; answer: string }[] }
+
+function formatConversation(conv: ConvContext): string {
+  const parts: string[] = []
+  if (conv.summary) parts.push(`Earlier (summary): ${conv.summary}`)
+  for (const t of conv.recent) parts.push(`Q: ${t.question}\nA: ${t.answer}`)
+  return parts.join('\n\n')
+}
 
 // The whole retrieved chunk goes to the model — a per-chunk char cap was tried for
 // latency and reverted: it clipped load-bearing facts out of prose chunks (AUDIT has
@@ -56,10 +101,35 @@ export function formatContext(chunks: RetrievedChunk[]): string {
     .join('\n\n')
 }
 
-export function answerUserPrompt(question: string, chunks: RetrievedChunk[]): string {
-  return `QUESTION:\n${question}\n\nCONTEXT:\n${formatContext(chunks)}`
+export function answerUserPrompt(
+  question: string,
+  chunks: RetrievedChunk[],
+  conv?: ConvContext,
+): string {
+  const convBlock =
+    conv && (conv.summary || conv.recent.length > 0)
+      ? `CONVERSATION (context only — not a source of facts):\n${formatConversation(conv)}\n\n`
+      : ''
+  return `${convBlock}QUESTION:\n${question}\n\nCONTEXT:\n${formatContext(chunks)}`
 }
 
+// verify never sees the conversation — claims are checked against the chunks only.
 export function verifyUserPrompt(answer: string, chunks: RetrievedChunk[]): string {
   return `ANSWER:\n${answer}\n\nCONTEXT:\n${formatContext(chunks)}`
+}
+
+export function condenseUserPrompt(conv: ConvContext, question: string): string {
+  return `CONVERSATION:\n${formatConversation(conv)}\n\nLATEST QUESTION:\n${question}`
+}
+
+export function summaryUserPrompt(
+  current: string,
+  newExchanges: { question: string; answer: string }[],
+): string {
+  const ex = newExchanges.map((t) => `Q: ${t.question}\nA: ${t.answer}`).join('\n\n')
+  return `CURRENT SUMMARY:\n${current || '(none)'}\n\nNEW EXCHANGES:\n${ex}`
+}
+
+export function metaUserPrompt(conv: ConvContext, question: string): string {
+  return `CONVERSATION:\n${formatConversation(conv)}\n\nQUESTION ABOUT THE CONVERSATION:\n${question}`
 }

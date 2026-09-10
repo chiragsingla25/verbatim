@@ -1124,6 +1124,33 @@ mark.cited {
   border-radius: 12px 12px 12px 3px;
   padding: 15px 18px;
 }
+.meta-card {
+  max-width: 88%;
+  background: var(--om-bg-muted);
+  border: 1px solid var(--om-border-card);
+  border-radius: 12px 12px 12px 3px;
+  padding: 15px 18px;
+}
+.meta-card .a-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--om-text-tertiary);
+}
+.meta-card .a-head svg {
+  flex-shrink: 0;
+}
+.meta-card p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--om-text-prose);
+}
 .abstain-card .a-head {
   display: flex;
   align-items: center;

@@ -9,7 +9,9 @@ const SourceSlideOver = lazy(() =>
   import('../components/SourceSlideOver').then((m) => ({ default: m.SourceSlideOver })),
 )
 
-type TurnAnswer = Pick<AnswerResult, 'answer' | 'citations' | 'abstained'>
+type TurnAnswer = Pick<AnswerResult, 'answer' | 'citations' | 'abstained'> & {
+  kind?: AnswerResult['kind']
+}
 type Turn = {
   id: number
   question: string
@@ -65,7 +67,12 @@ export function Ask() {
                 id: nextId.current++,
                 question: e.question,
                 pending: false,
-                result: { answer: e.answer, citations: e.citations, abstained: e.abstained },
+                result: {
+                  answer: e.answer,
+                  citations: e.citations,
+                  abstained: e.abstained,
+                  kind: e.kind,
+                },
               })),
         )
       })

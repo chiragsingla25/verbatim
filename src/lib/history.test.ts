@@ -10,6 +10,7 @@ const base: RawHistoryRow = {
   version_id: 'v1',
   session_id: 's1',
   turn: 1,
+  kind: 'grounded',
   at: '2026-09-09T10:00:00Z',
   manual_versions: { title: 'PSS-10', status: 'active', instrument: { name: 'PSS' } },
 }

@@ -26,6 +26,7 @@ describe('schema mirror', () => {
       retrieved: [{ chunkId: 'c1', page: 2, score: 0.9 }],
       sessionId: 's1',
       turn: 1,
+      kind: 'grounded',
     })
     expect(ok.success).toBe(true)
   })

@@ -1,12 +1,13 @@
 // Pure row → HistoryEntry transform for the /history screen. Kept free of the supabase
 // client so it's unit-testable; api.ts owns the actual query_log queries.
-import { type Citation, citationSchema } from './schema'
+import { type AnswerKind, type Citation, citationSchema } from './schema'
 
 export type HistoryEntry = {
   id: string
   question: string
   answer: string
   abstained: boolean
+  kind: AnswerKind
   citations: Citation[]
   versionId: string
   sessionId: string
@@ -34,6 +35,7 @@ export type RawHistoryRow = {
   version_id: string
   session_id: string
   turn: number
+  kind: string | null
   at: string
   manual_versions: EmbeddedManual
 }
@@ -52,6 +54,7 @@ export function toHistoryEntry(r: RawHistoryRow): HistoryEntry {
     question: r.question,
     answer: r.answer ?? '',
     abstained: r.abstained,
+    kind: (r.kind as AnswerKind | null) ?? (r.abstained ? 'abstained' : 'grounded'),
     citations: parsed.success ? parsed.data : [],
     versionId: r.version_id,
     sessionId: r.session_id,
