@@ -100,16 +100,13 @@ Deno.serve(async (req) => {
             .eq('id', sid)
           if (error) throw new Error(error.message)
         },
-        matchChunks: async (vid, embedding, queryText, k): Promise<RetrievedChunk[]> => {
-          // Hybrid dense + lexical RRF. security-invoker + version-filtered in both arms,
-          // same guarantees as the pgvector-only match_chunks it replaces on this path.
-          const { data, error } = await supabase.rpc('match_chunks_hybrid', {
+        matchChunks: async (vid, embedding, k): Promise<RetrievedChunk[]> => {
+          const { data, error } = await supabase.rpc('match_chunks', {
             p_version_id: vid,
             p_query_embedding: embedding,
-            p_query_text: queryText,
             p_k: k,
           })
-          if (error) throw new Error(`match_chunks_hybrid: ${error.message}`)
+          if (error) throw new Error(`match_chunks: ${error.message}`)
           return (data ?? []).map((r: Record<string, unknown>) => ({
             chunkId: String(r.chunk_id),
             page: Number(r.page ?? 0),

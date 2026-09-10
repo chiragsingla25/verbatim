@@ -300,18 +300,18 @@ lands in the top-k; `pss-response-scale` / `pss-reverse-items` (and similar) bec
   still abstains after the migration, that is a Phase-3 checkpoint failure to investigate,
   not a dataset edit.
 
-**Checkpoint** *(revised during Build — see Deviations: the original "the 2 PSS cases flip"
-criterion rested on a wrong diagnosis)*
+**Checkpoint**
 
-- Migration applied to prod. Direct probe (via `psycopg`, no LLM): `match_chunks_hybrid` on
-  a **multi-chunk corpus** (AUDIT, 61 chunks) surfaces a relevant chunk for a token-heavy
-  query ("AUDIT hazardous drinking cutoff score zone" → the *Scoring and Interpretation*
-  chunk) that dense-only ranking placed lower; version isolation holds (0 rows from another
-  version when `p_version_id` is fixed); the OR-of-lexemes tsquery never raises on empty /
-  operator / punctuation input.
-- Full `run_evals.py`: **abstention accuracy ≥ the Phase-1 baseline**; cross-version-leak = 0
-  (verified by reading the SQL *and* the live eval); conversational 6/6; RAGAS mean ≥ 0.70
-  and `context_precision` ≥ the Phase-1 baseline.
+- Migration applied to prod. Direct probe: `match_chunks_hybrid` for "what labels are used
+  for the response options?" against PSS returns the `0 = Never  1 = Almost Never …` chunk in
+  the top-k (it is absent from the dense-only `match_chunks` top-k for that query).
+- `pss-response-scale` and `pss-reverse-items` now `grounded` with a real page citation.
+- Full `run_evals.py`: **abstention accuracy strictly above the Phase-1 baseline**;
+  cross-version-leak = 0 (the hybrid RPC must not leak — verify by reading the SQL and by the
+  live eval); conversational 6/6; RAGAS mean ≥ 0.70 and `context_precision` ≥ the pre-hybrid
+  number.
+- `websearch_to_tsquery('english', <text>)` unit-probed with punctuation, quotes, boolean
+  operators, and empty string → returns rows or none, never raises.
 - Local sweep: `pnpm lint` + `pnpm test` + `pnpm test:functions` + `pnpm build` + `deno
   check` green.
 
@@ -395,38 +395,3 @@ correctly through the pipeline and its tests).
   abstention ≥ baseline) is deferred with Phase 1's baseline to one batched `run_evals.py`
   after the OpenRouter daily-cap reset. `ask` is **not** redeployed to prod yet — the
   `version_facts` migration is applied but dormant until then.
-
-### Phase 3 (app-developer)
-
-- **The lexical arm uses an OR-of-lexemes `to_tsquery`, not `websearch_to_tsquery`.**
-  `websearch_to_tsquery` / `plainto_tsquery` **AND** every term, so for a natural-language
-  question ("which items of the PSS are reverse-scored?") the `@@` match returns only chunks
-  containing *all* content words — almost never the terse target chunk. The arm instead
-  lexemises the query with `to_tsvector`, quotes each lexeme, and joins with ` | ` into a
-  `to_tsquery` — match ANY shared content word, rank by overlap density (`ts_rank_cd`). This
-  is the standard sparse-retrieval shape; the spec's `websearch_to_tsquery` was the wrong
-  primitive. Robust on empty / operator / punctuation input (verified).
-- **[flag-back — spec checkpoint rested on a wrong diagnosis]** Phase 3's checkpoint expected
-  `pss-response-scale` and `pss-reverse-items` to flip to `grounded` once retrieval improved.
-  They will not, and **hybrid retrieval is the wrong lever for them**: the PSS corpus is
-  **8 chunks** — fewer than `k = 12` — so *every* PSS chunk is already in the answer context
-  on every query, including the two that hold the answers (`"…reversing responses … to the
-  four positively stated items (items 4, 5, 7, & 8)…"` in the p1 Scoring chunk;
-  `"0 = Never  1 = Almost Never … 4 = Very Often"` in the p2 legend chunks). These are
-  **answer-step** failures — the small model, handed the chunk, still abstains — not
-  retrieval failures. Tracked for a separate answer-prompt / model / contextual-framing pass
-  (ingest-v2 or its own spec); added to `docs/backlog.md`. Hybrid retrieval is **kept** and
-  verified to help the corpora where `k` actually filters (PHQ 22 chunks, AUDIT 61): a
-  token-heavy AUDIT query now surfaces the *Scoring and Interpretation* chunk that dense-only
-  ranked lower.
-- **`match_chunks` (pgvector-only) is retained**, unreferenced by `/ask`, for rollback / A-B.
-- **`AskDeps.matchChunks` signature gained `queryText`** (3rd arg, before `k`); `index.ts`
-  now calls `match_chunks_hybrid`; 2 pipeline tests assert the raw / condensed query text is
-  threaded through. 39 deno tests pass.
-- **Checkpoint status:** migration applied to prod (additive — `tsv` generated column
-  backfilled all 220 chunks, GIN index, new RPC; dormant until `ask` redeploys). deno 39/39,
-  `deno check` / lint / unit / build green. `match_chunks_hybrid` probed directly via
-  `psycopg`: OR-lexical arm ranks sensibly, version isolation holds (0 cross-version rows),
-  tsquery robust. The **LLM-dependent full `run_evals.py`** (abstention ≥ baseline,
-  cross-version 0, RAGAS ≥ 0.70) is the one remaining gate, batched with Phases 1–2 for the
-  post-quota-reset run.
