@@ -311,6 +311,15 @@ function PdfPage({
     let dead = false
     let task: RenderTask | null = null
     const canvas = canvasRef.current
+    // Page left the render window — free its bitmap immediately (not just on unmount), so
+    // a long manual never holds more than ~2·WINDOW canvases.
+    if (!active) {
+      if (canvas) {
+        canvas.width = 0
+        canvas.height = 0
+      }
+      return
+    }
     ;(async () => {
       const pg = await pdf.getPage(n)
       if (dead) return
@@ -319,7 +328,7 @@ function PdfPage({
       const cssW = Math.min(availW, base.width) * zoom
       const cssScale = cssW / base.width
       setDims({ w: cssW, h: base.height * cssScale })
-      if (!active || !canvas) return
+      if (!canvas) return
       const viewport = pg.getViewport({ scale: cssScale * DPR })
       canvas.width = viewport.width
       canvas.height = viewport.height
@@ -342,10 +351,6 @@ function PdfPage({
     return () => {
       dead = true
       task?.cancel()
-      if (canvas && !active) {
-        canvas.width = 0
-        canvas.height = 0
-      }
     }
   }, [pdf, n, zoom, availW, active, quote])
 
