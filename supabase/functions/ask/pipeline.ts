@@ -71,7 +71,14 @@ export type DocFacts = {
 
 export type AskDeps = {
   embed: (text: string) => Promise<number[]>
-  matchChunks: (versionId: string, embedding: number[], k: number) => Promise<RetrievedChunk[]>
+  // Hybrid retrieval: `queryText` feeds the lexical arm (websearch_to_tsquery), `embedding`
+  // the dense arm; the RPC fuses them with RRF. Same text on both sides.
+  matchChunks: (
+    versionId: string,
+    embedding: number[],
+    queryText: string,
+    k: number,
+  ) => Promise<RetrievedChunk[]>
   // Catalog facts for the version, or null when unavailable / not visible to the caller.
   getFacts: (versionId: string) => Promise<DocFacts | null>
   chat: ChatFn
@@ -315,7 +322,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
   // 1. retrieve (RLS + version filter live in match_chunks) — uses the condensed query.
   //    In parallel, fetch the deterministic catalog facts for this version.
   const [qvec, facts] = await Promise.all([deps.embed(retrievalQuery), deps.getFacts(versionId)])
-  const hits = await deps.matchChunks(versionId, qvec, RETRIEVE_K)
+  const hits = await deps.matchChunks(versionId, qvec, retrievalQuery, RETRIEVE_K)
   const retrieved = hits.map((h) => ({ chunkId: h.chunkId, page: h.page, score: h.score }))
   // __facts__ is not a retrieved chunk (kept out of `retrieved` / the query_log), but it
   // is a citable source in the answer + verify context. Proceed if there's anything to

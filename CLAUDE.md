@@ -20,29 +20,42 @@ come later — v1 is the deterministic baseline.
 
 ## Architecture (do not redesign without updating the spec)
 
-Conversational RAG, single retriever — **not** an agent (no planner, no ReAct loop, no
-tool use). As of **v1.2** (`specs/2026-09-10-verbatim-v1.2.md`) `/ask` is multi-turn:
+Conversational RAG, single retrieval entry point — **not** an agent (no planner, no ReAct
+loop, no tool use). Multi-turn as of **v1.2** (`specs/2026-09-10-verbatim-v1.2.md`); hybrid
+retrieval + a document-facts source as of the **accuracy-mvp**
+(`specs/2026-09-11-verbatim-accuracy-mvp.md`):
 
 ```
 follow-up + conversation (bounded recent turns + a rolling per-session summary)
   → condense to a standalone retrieval query  (or flag it __META__)
-  → embed (gte-small) → pgvector top-k (k=12, ONE version_id, RLS via match_chunks)
+  → embed (gte-small) + raw query text
+      → match_chunks_hybrid: dense pgvector <=> + lexical tsvector, fused by RRF (k=60),
+        top-k=12, ONE version_id, RLS via `security invoker`
+  → + a deterministic __facts__ chunk (catalog metadata: pages / edition / year /
+      publisher / instrument — from version_facts(), NOT a retriever, NOT the open web)
   → answer w/ structured citations (conversation is context for the question ONLY,
     never a source of a claim) OR abstain
-  → verify (2nd LLM call, chunks-only — a claim backed only by the transcript/summary
-    is UNSUPPORTED) → log to query_log (session_id, turn, kind)
+  → verify (2nd LLM call — checks claims against the retrieved chunks + __facts__ only;
+    a claim backed only by the transcript/summary is UNSUPPORTED)
+  → log to query_log (session_id, turn, kind; __facts__ excluded from `retrieved`)
 ```
 
-- **Three response kinds:** `grounded` (≥1 citation to the requested version), `abstained`
-  ("not found in this version"), or `meta` (a question about the conversation itself —
-  answered from the transcript, no citation, no manual claim, verify skipped).
-- A **first / single-turn** call has no conversation → byte-identical to the pre-v1.2
-  pipeline (why the abstention + cross-version-leak evals stay green unchanged).
-- **No reranker** (deferred). No planner/orchestrator, no ReAct loop, no LangChain. Deferred
-  features live in the spec's out-of-scope section — check it before adding anything.
+- **Three response kinds:** `grounded` (≥1 citation to a chunk in the requested version, or
+  to `__facts__`), `abstained` ("not found in this version"), or `meta` (a question about the
+  conversation itself — answered from the transcript, no citation, no manual claim, verify
+  skipped).
+- A **first / single-turn** call has no conversation → the conversational prompt appendices
+  are not applied. The facts block is always present (deliberate, gated by the full eval).
+- **No reranker** (deferred). **RRF rank-fusion is not a reranker** — no model, no
+  cross-encoder. The pgvector-only `match_chunks` RPC is retained for rollback but off the
+  `/ask` path. No planner/orchestrator, no ReAct loop, no LangChain. Deferred features live
+  in the spec's out-of-scope section — check it before adding anything.
 - **Version isolation is enforced by Postgres RLS**, not an application `WHERE` clause. The
-  `match_chunks` RPC is `security invoker` so it runs under the caller's JWT. A bug in the Edge
-  Function must not be able to leak another version's chunks. Dedicated eval: `cross-version-leak`.
+  retrieval RPC (`match_chunks_hybrid`, and the retained `match_chunks`) is `security invoker`
+  so it runs under the caller's JWT, and both RRF arms filter `version_id`. `version_facts()`
+  is `security invoker` too — a version the caller can't see returns no facts. A bug in the
+  Edge Function must not be able to leak another version's chunks. Dedicated eval:
+  `cross-version-leak`.
 - **Structured output without a vendor feature:** prompt asks for JSON → `JSON.parse` → extract the
   first `{…}` → one retry → else treat as abstention. Validate with `zod`. The answer step returns
   `{ answer, citations: [{chunkId, page, quote}], abstained }`; verify returns
