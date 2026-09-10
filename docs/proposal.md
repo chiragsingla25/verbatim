@@ -155,6 +155,20 @@ Delivery model: single developer + `/code-review` gate at each phase boundary (t
 a new `SECURITY DEFINER` admin surface). Deferred: edition-comparison, batch Q&A, reranker,
 monitoring, polish/infra bundle.
 
+## v1.1.1 — upload-lifecycle recovery (approved 2026-09-10)
+
+A `pending` manual version whose ingestion failed or stalled has no recovery path — you
+cannot retry, replace the file, or delete it, so dead uploads accumulate. Contract:
+**`specs/2026-09-10-verbatim-v1.1.1-upload-recovery.md`**.
+
+Four actions on the review screen (creator or admin, `pending` versions only): **delete**
+(hard — row + chunks + job + storage object + audit entry), **retry ingestion** (re-run
+Docling on the same file), **replace** the source PDF in place, and **reject from any job
+state** (UI-only; the RPC already allows it). One new Edge Function `ingest-trigger` fires the
+GitHub dispatch for retry/replace (the storage webhook is INSERT-only, so an overwrite won't
+re-trigger it); delete is a `SECURITY DEFINER` RPC. 2 phases (server, then SPA), `/code-review`
+at each. Deploy: `supabase functions deploy ingest-trigger` + `supabase db push` + normal CI.
+
 ## Reference material
 
 - Verbatim v1 PRD — https://claude.ai/code/artifact/b7e2a975-2846-4f2b-b07a-513aa93a24e4
