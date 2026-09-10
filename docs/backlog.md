@@ -117,7 +117,7 @@ polish or a heavier retrieval lift, not answer accuracy.
 - **Delete a conversation** — `query_log` / `chat_sessions` have no delete policy (eval
   corpus). Needs a soft-delete / `hidden` flag on `chat_sessions` — keep the rows, hide the
   session from "My answers". Size: S.
-- ~~**Copy a conversation**~~ — ✅ done 2026-09-10 (`e20e035`): "Copy conversation" in the
+- ~~**Copy a conversation**~~ — ✅ done 2026-09-10: "Copy conversation" in the
   expanded `/history` card copies the transcript (`Q: … / A: …`, manual + title header) via
   `navigator.clipboard`. Per-answer copy / share-link still open.
 - **Rename a conversation** — the title is auto-derived from the first question, not editable.
