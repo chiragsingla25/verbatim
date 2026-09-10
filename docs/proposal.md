@@ -169,6 +169,27 @@ GitHub dispatch for retry/replace (the storage webhook is INSERT-only, so an ove
 re-trigger it); delete is a `SECURITY DEFINER` RPC. 2 phases (server, then SPA), `/code-review`
 at each. Deploy: `supabase functions deploy ingest-trigger` + `supabase db push` + normal CI.
 
+## v1.1.2 — password reset + infra-fix bundle (approved 2026-09-10)
+
+Two unrelated tracks. Contract: **`specs/2026-09-10-verbatim-v1.1.2.md`**.
+
+1. **Forgot-password flow** — the last missing auth flow. A "Forgot password?" link on
+   SignIn → a `/forgot-password` request screen (`resetPasswordForEmail`, same success
+   message whether or not the address is registered) → the emailed link lands on a dedicated
+   `/reset-password` route that listens for `PASSWORD_RECOVERY` → set new password
+   (`updateUser`) → straight into the app. Expired/reused links degrade to a clear message.
+   User prerequisite: add the `/reset-password` URL to the Supabase Auth redirect allow-list.
+2. **Infra-fix bundle** — seven XS items of recorded debt from three release-qa passes:
+   `deploy.yml` SHA pin; `run_evals.py` clean exit on a terminal auth error; tighten the
+   loose 36-char version-id regexes (`ask`, `ingest-trigger`); a new migration to drop the
+   `split_part()::uuid` cast in `manuals_select_active_source`; `%BASE_URL%favicon.svg`;
+   `_shared/http.ts` to de-triplicate `json()`/CORS across the three Edge Functions;
+   `listVisibleVersions` stops embedding `ingest_jobs` on every row.
+
+Deferred: per-PR full-RAGAS eval gating, plus everything already deferred (edition
+comparison, batch Q&A, reranker, citation export, Library search/filter, monitoring,
+Supabase Pro). 2 phases, `/code-review` at each.
+
 ## Reference material
 
 - Verbatim v1 PRD — https://claude.ai/code/artifact/b7e2a975-2846-4f2b-b07a-513aa93a24e4
