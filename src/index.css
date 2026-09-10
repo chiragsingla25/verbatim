@@ -285,6 +285,13 @@ button.link:hover {
   color: var(--om-accent-primary-hover);
   text-decoration: underline;
 }
+/* "Try again" after a failed Ask turn — sits inline at the end of the error message */
+button.link.turn-retry {
+  margin-left: 8px;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+}
 button.ghost {
   background: none;
   border: none;
@@ -1486,6 +1493,15 @@ mark.cited {
    Library table collapses to stacked cards.
    ───────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
+  /* iOS Safari auto-zooms a focused field whose font-size is < 16px and never zooms
+     back out. Force 16px on every control on small screens (base is 14px). */
+  input,
+  textarea,
+  select,
+  .composer-box textarea {
+    font-size: 16px;
+  }
+
   .mobile-topbar {
     display: flex;
   }

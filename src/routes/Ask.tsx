@@ -100,13 +100,10 @@ export function Ask() {
     )
   }
 
-  async function submit(e: FormEvent) {
-    e.preventDefault()
-    const q = draft.trim()
-    if (!q || !version || !sessionId) return
-    const id = nextId.current++
-    setTurns((t) => [...t, { id, question: q, pending: true }])
-    setDraft('')
+  // Run (or re-run) one turn's /ask call and fold the result/error back into that turn.
+  async function runTurn(id: number, q: string) {
+    if (!sessionId) return
+    setTurns((t) => t.map((x) => (x.id === id ? { ...x, pending: true, error: undefined } : x)))
     try {
       const result = await ask(versionId, q, sessionId)
       setTurns((t) => t.map((x) => (x.id === id ? { ...x, pending: false, result } : x)))
@@ -119,6 +116,16 @@ export function Ask() {
         ),
       )
     }
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    const q = draft.trim()
+    if (!q || !version || !sessionId) return
+    const id = nextId.current++
+    setTurns((t) => [...t, { id, question: q, pending: true }])
+    setDraft('')
+    runTurn(id, q)
   }
 
   if (loadErr) {
@@ -181,7 +188,14 @@ export function Ask() {
             <section key={t.id} className="turn">
               <p className="turn-q">{t.question}</p>
               {t.pending && <p className="turn-pending">Reading the manual…</p>}
-              {t.error && <div className="msg err">{t.error}</div>}
+              {t.error && (
+                <div className="msg err">
+                  {t.error}
+                  <button type="button" className="link turn-retry" onClick={() => runTurn(t.id, t.question)}>
+                    Try again
+                  </button>
+                </div>
+              )}
               {t.result && (
                 <AnswerCard
                   result={t.result}
