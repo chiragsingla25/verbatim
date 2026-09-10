@@ -29,7 +29,22 @@ export function History() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [turns, setTurns] = useState<Record<string, HistoryEntry[]>>({})
   const [cite, setCite] = useState<{ versionId: string; page: number; quote: string } | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const gen = useRef(0)
+
+  async function copyConversation(s: SessionSummary, entries: HistoryEntry[]) {
+    const body = entries
+      .map((h) => `Q: ${h.question}\nA: ${h.abstained ? 'Not found in this version.' : h.answer}`)
+      .join('\n\n')
+    const text = `${s.manualLabel} — ${s.title}\n\n${body}\n`
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedId(s.sessionId)
+      setTimeout(() => setCopiedId((c) => (c === s.sessionId ? null : c)), 2000)
+    } catch {
+      setError('Could not copy to the clipboard.')
+    }
+  }
 
   useEffect(() => {
     historyManuals().then(setManuals).catch(() => setManuals([]))
@@ -151,11 +166,22 @@ export function History() {
                       />
                     </section>
                   ))}
-                  {s.manualActive && (
-                    <Link className="hist-reask" to={`/ask/${s.versionId}?s=${s.sessionId}`}>
-                      Resume this conversation →
-                    </Link>
-                  )}
+                  <div className="hist-actions">
+                    {t && t.length > 0 && (
+                      <button
+                        type="button"
+                        className="link"
+                        onClick={() => copyConversation(s, t)}
+                      >
+                        {copiedId === s.sessionId ? 'Copied' : 'Copy conversation'}
+                      </button>
+                    )}
+                    {s.manualActive && (
+                      <Link className="hist-reask" to={`/ask/${s.versionId}?s=${s.sessionId}`}>
+                        Resume this conversation →
+                      </Link>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

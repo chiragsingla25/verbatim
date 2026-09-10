@@ -91,16 +91,15 @@ the *full* eval the CI gate, the **document facts block**, **hybrid retrieval**,
 **per-answer feedback** signal. Everything below is out of that cut — real, but UX / trust
 polish or a heavier retrieval lift, not answer accuracy.
 
-### A — small standalone fixes
+### A — small standalone fixes — ✅ done 2026-09-10 (`4b4c6fa`)
 
-- **iOS keyboard zoom** — `font-size: 14px` on `input / textarea / select` and the Ask
-  composer triggers Safari's focus auto-zoom, which never restores. Add
-  `@media (max-width: 760px) { input, textarea, select { font-size: 16px } }` (not
-  `maximum-scale=1` — that kills pinch-zoom a11y). `src/index.css`. Size: XS.
-- **Error boundary** — any render throw is an unrecoverable blank screen. Add a top-level
-  boundary in `src/App.tsx` with a reload / go-home fallback. Size: S.
-- **Ask — retry a failed turn** — an errored turn shows the message but drops the question
-  text; the user retypes. Keep the text, add "Try again". `src/routes/Ask.tsx`. Size: S.
+- ~~**iOS keyboard zoom**~~ — `@media (max-width: 760px)` forces `input / textarea / select`
+  + the composer textarea to 16px. `src/index.css`.
+- ~~**Error boundary**~~ — `src/components/ErrorBoundary.tsx` (class component) wraps
+  `AuthProvider` + `App` in `main.tsx`; "Something went wrong" panel with Reload / Go to
+  library instead of a blank page.
+- ~~**Ask — retry a failed turn**~~ — a failed turn keeps its question text and shows an
+  inline "Try again" (`submit()` refactored to share `runTurn(id, q)`). `src/routes/Ask.tsx`.
 
 ### B — missing basics (own bundle, e.g. v1.3)
 
@@ -118,7 +117,9 @@ polish or a heavier retrieval lift, not answer accuracy.
 - **Delete a conversation** — `query_log` / `chat_sessions` have no delete policy (eval
   corpus). Needs a soft-delete / `hidden` flag on `chat_sessions` — keep the rows, hide the
   session from "My answers". Size: S.
-- **Copy / share a conversation or answer** — doesn't exist; pure client-side. Size: XS.
+- ~~**Copy a conversation**~~ — ✅ done 2026-09-10 (`e20e035`): "Copy conversation" in the
+  expanded `/history` card copies the transcript (`Q: … / A: …`, manual + title header) via
+  `navigator.clipboard`. Per-answer copy / share-link still open.
 - **Rename a conversation** — the title is auto-derived from the first question, not editable.
   Size: XS.
 - **Search across conversations** in "My answers". Size: S.
