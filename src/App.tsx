@@ -7,8 +7,10 @@ import type { AppRole } from './lib/schema'
 import { Admin } from './routes/Admin'
 import { Ask } from './routes/Ask'
 import { AuthCallback } from './routes/AuthCallback'
+import { ForgotPassword } from './routes/ForgotPassword'
 import { History } from './routes/History'
 import { Library } from './routes/Library'
+import { ResetPassword } from './routes/ResetPassword'
 import { ReviewUpload } from './routes/ReviewUpload'
 import { SignIn } from './routes/SignIn'
 import { SignUp } from './routes/SignUp'
@@ -66,6 +68,8 @@ export default function App() {
     <Routes>
       <Route path="/signin" element={<SignIn />} />
       <Route path="/signup" element={<SignUp />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route
         path="/"

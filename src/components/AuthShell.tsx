@@ -7,8 +7,15 @@ const CHECK = (
   </svg>
 )
 
-// Split brand + form layout for /signin and /signup (SignIn artboard).
-export function AuthShell({ active, children }: { active: 'signin' | 'signup'; children: ReactNode }) {
+// Split brand + form layout for /signin and /signup (SignIn artboard). The
+// forgot-password / reset-password screens reuse it with no `active` tab.
+export function AuthShell({
+  active,
+  children,
+}: {
+  active?: 'signin' | 'signup'
+  children: ReactNode
+}) {
   return (
     <div className="auth-split">
       <div className="auth-brand">
@@ -33,14 +40,16 @@ export function AuthShell({ active, children }: { active: 'signin' | 'signup'; c
 
       <div className="auth-form-pane">
         <div className="auth-form">
-          <div className="auth-tabs">
-            <Link to="/signin" className={active === 'signin' ? 'on' : undefined}>
-              Sign in
-            </Link>
-            <Link to="/signup" className={active === 'signup' ? 'on' : undefined}>
-              Create account
-            </Link>
-          </div>
+          {active && (
+            <div className="auth-tabs">
+              <Link to="/signin" className={active === 'signin' ? 'on' : undefined}>
+                Sign in
+              </Link>
+              <Link to="/signup" className={active === 'signup' ? 'on' : undefined}>
+                Create account
+              </Link>
+            </div>
+          )}
           {children}
         </div>
       </div>

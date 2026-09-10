@@ -1312,6 +1312,11 @@ mark.cited {
   font-size: 13px;
   color: var(--om-text-secondary);
 }
+.auth-form .af-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  text-align: right;
+}
 .auth-form button[type="submit"] {
   width: 100%;
   padding: 12px 14px;

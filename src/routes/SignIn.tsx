@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AuthShell } from '../components/AuthShell'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -52,6 +52,9 @@ export function SignIn() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
+        <p className="af-hint">
+          <Link to="/forgot-password">Forgot password?</Link>
+        </p>
         {error && <div className="msg err">{error}</div>}
         <button type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
