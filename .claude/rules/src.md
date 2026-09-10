@@ -13,6 +13,11 @@
   A metadata question may also be grounded in the deterministic `__facts__` chunk from
   `version_facts()` (also `security invoker`) — never a retriever result, excluded from
   `query_log.retrieved`.
+- **The SPA may read `public.document_chunks` directly under the caller's JWT — for SOURCE
+  DISPLAY ONLY** (v1.3: rendering a cited table in an answer; the citation viewer's "search
+  this manual"). Never to synthesise an answer — that still goes only through `match_chunks` —
+  and never with the service-role client. RLS `document_chunks_select_via_version` already
+  gates the read to `active` / owned / admin versions, the same data a citation exposes.
 - **The vector store is Postgres.** `document_chunks.embedding` is `vector(384)` in the same
   database as everything else. No external vector DB. Similarity is pgvector `<=>` with the HNSW
   index; access control is the table's RLS policy.

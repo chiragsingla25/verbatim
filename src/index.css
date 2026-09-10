@@ -1095,6 +1095,94 @@ a.lib-row:hover {
   line-height: 1.55;
   color: var(--om-text-prose);
 }
+/* staged progress while an answer is being produced (see AnswerProgress.tsx) */
+.answer-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.answer-progress-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--om-accent-primary);
+  animation: answer-progress-pulse 1.3s ease-in-out infinite;
+}
+@keyframes answer-progress-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* a cited chunk that is / contains a table — excerpt + jump to the source page */
+.answer-table {
+  margin: 12px 0 0;
+  border: 1px solid var(--om-border-card);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--om-bg-mat);
+}
+.answer-table figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--om-text-tertiary);
+  background: var(--om-bg-muted);
+  border-bottom: 1px solid var(--om-border-subtle);
+}
+.answer-table figcaption .link {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11.5px;
+}
+.answer-table pre {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--om-text-prose);
+  overflow-x: auto;
+}
+.answer-table-scroll {
+  overflow-x: auto;
+}
+.answer-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+.answer-table th,
+.answer-table td {
+  border: 1px solid var(--om-border-subtle);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.answer-table th {
+  background: var(--om-bg-muted);
+  font-weight: 600;
+}
+.answer-table tr.match td {
+  background: var(--om-accent-primary-bg);
+}
+.cite-chip.copy {
+  margin-left: auto;
+  color: var(--om-text-secondary);
+}
+
 .answer-verified {
   margin-top: 12px;
   padding-top: 10px;
@@ -1640,5 +1728,19 @@ mark.cited {
   .auth-form {
     width: 100%;
     max-width: 380px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Reduced motion — kill non-essential animation for users who ask for it.
+   ───────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

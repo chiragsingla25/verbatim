@@ -89,6 +89,26 @@ export async function ask(
   return answerResultSchema.parse(await res.json())
 }
 
+// Content of specific chunks, for SOURCE DISPLAY ONLY (rendering a cited table in an
+// answer). Read under the caller's JWT — RLS `document_chunks_select_via_version` gates it
+// to active / owned / admin versions, the same data a citation already exposes. This is
+// never used to synthesise an answer; retrieval still goes only through `match_chunks`.
+export type CitedChunk = { content: string; tableRef: string | null; page: number }
+export async function citedChunkContent(chunkIds: string[]): Promise<Record<string, CitedChunk>> {
+  const ids = [...new Set(chunkIds)].filter(Boolean)
+  if (ids.length === 0) return {}
+  const { data, error } = await supabase
+    .from('document_chunks')
+    .select('id, content, table_ref, page')
+    .in('id', ids)
+  if (error) throw new Error(error.message)
+  const out: Record<string, CitedChunk> = {}
+  for (const r of (data ?? []) as { id: string; content: string; table_ref: string | null; page: number }[]) {
+    out[r.id] = { content: r.content ?? '', tableRef: r.table_ref, page: r.page }
+  }
+  return out
+}
+
 // Short-TTL signed URL to a version's source PDF (RLS: readable for an active version).
 export async function sourcePdfUrl(versionId: string): Promise<string> {
   const path = `v/${versionId}/source.pdf`

@@ -1,6 +1,7 @@
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { AnswerCard } from '../components/AnswerCard'
+import { AnswerProgress } from '../components/AnswerProgress'
 import { ask, type AskVersion, getAskVersion, getSession, newSessionId } from '../lib/api'
 import type { AnswerResult } from '../lib/schema'
 
@@ -187,7 +188,7 @@ export function Ask() {
           {turns.map((t) => (
             <section key={t.id} className="turn">
               <p className="turn-q">{t.question}</p>
-              {t.pending && <p className="turn-pending">Reading the manual…</p>}
+              {t.pending && <AnswerProgress />}
               {t.error && (
                 <div className="msg err">
                   {t.error}

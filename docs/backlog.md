@@ -179,6 +179,12 @@ All three share one corpus re-ingest, so they ship together or not at all:
   contains are: …" — falls out of the outline artifact. Size: XS.
 - **Reranker** — still out ($0 / OSS constraint; the good ones are hosted APIs). Revisit only
   if the above isn't enough.
+- **Structured tables** — ingestion flattens tables (Docling `contextualize()` →
+  `"rowLabel, col = value"` text). Store the real grid too: a `document_chunks.table_html`
+  column (or a `tables` side-table) from Docling `table.export_to_html()` /
+  `export_to_dataframe()`. v1.3's `<TableExcerpt>` already renders a real `<table>` via
+  `parseMarkdownTable` when the text is grid-shaped — this is the ingest half that makes it
+  fire. Size: M (rides the re-ingest).
 
 ### D — data / corpus state (not code)
 
