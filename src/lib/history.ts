@@ -45,6 +45,42 @@ export function manualLabel(mv: EmbeddedManual): string {
   return [mv.instrument?.name ?? 'Manual', mv.title].filter(Boolean).join(' · ')
 }
 
+// ── conversations (v1.2) ────────────────────────────────────────────────────
+
+export type SessionSummary = {
+  sessionId: string
+  versionId: string
+  manualLabel: string
+  manualActive: boolean
+  title: string
+  turnCount: number
+  startedAt: string
+  lastAt: string
+}
+
+export type RawSessionRow = {
+  id: string
+  version_id: string
+  title: string | null
+  turn_count: number
+  started_at: string
+  last_at: string
+  manual_versions: EmbeddedManual
+}
+
+export function toSessionSummary(r: RawSessionRow): SessionSummary {
+  return {
+    sessionId: r.id,
+    versionId: r.version_id,
+    manualLabel: manualLabel(r.manual_versions),
+    manualActive: r.manual_versions?.status === 'active',
+    title: r.title?.trim() || '(untitled)',
+    turnCount: r.turn_count,
+    startedAt: r.started_at,
+    lastAt: r.last_at,
+  }
+}
+
 export function toHistoryEntry(r: RawHistoryRow): HistoryEntry {
   // query_log.citations is a raw jsonb column — validate it at the DB boundary rather
   // than trusting the shape (.claude/rules/src.md).

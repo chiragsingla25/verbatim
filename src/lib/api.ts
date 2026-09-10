@@ -3,7 +3,10 @@ import {
   type HistoryEntry,
   manualLabel,
   type RawHistoryRow,
+  type RawSessionRow,
+  type SessionSummary,
   toHistoryEntry,
+  toSessionSummary,
 } from './history'
 import { type AnswerResult, answerResultSchema, type AppRole } from './schema'
 import { supabase } from './supabase'
@@ -207,6 +210,34 @@ export async function getSession(sessionId: string): Promise<HistoryEntry[]> {
     .order('turn', { ascending: true })
   if (error) throw new Error(error.message)
   return ((data ?? []) as unknown as RawHistoryRow[]).map(toHistoryEntry)
+}
+
+export type { SessionSummary }
+
+const SESSION_SELECT =
+  'id, version_id, title, turn_count, started_at, last_at, manual_versions(title, status, instrument:instruments(name))'
+
+// One page of the caller's conversations, most-recently-active first. Keyset paginated on
+// the compound (last_at, id) cursor — last_at alone isn't unique.
+export async function listMySessions(
+  opts: { versionId?: string; before?: { lastAt: string; id: string }; limit?: number } = {},
+): Promise<SessionSummary[]> {
+  let q = supabase
+    .from('chat_sessions')
+    .select(SESSION_SELECT)
+    .eq('user_id', await currentUserId())
+    .order('last_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(opts.limit ?? 25)
+  if (opts.versionId) q = q.eq('version_id', opts.versionId)
+  if (opts.before) {
+    q = q.or(
+      `last_at.lt.${opts.before.lastAt},and(last_at.eq.${opts.before.lastAt},id.lt.${opts.before.id})`,
+    )
+  }
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as unknown as RawSessionRow[]).map(toSessionSummary)
 }
 
 export type HistoryManual = { versionId: string; label: string }

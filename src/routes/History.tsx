@@ -1,7 +1,14 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AnswerCard } from '../components/AnswerCard'
-import { type HistoryEntry, type HistoryManual, historyManuals, listMyHistory } from '../lib/api'
+import {
+  type HistoryEntry,
+  type HistoryManual,
+  getSession,
+  historyManuals,
+  listMySessions,
+  type SessionSummary,
+} from '../lib/api'
 import { errMessage, relDate } from '../lib/format'
 
 const SourceSlideOver = lazy(() =>
@@ -10,38 +17,31 @@ const SourceSlideOver = lazy(() =>
 
 const PAGE = 25
 
-function snippet(h: HistoryEntry): string {
-  if (h.abstained) return 'Not found in this version.'
-  return h.answer.length > 140 ? `${h.answer.slice(0, 140)}…` : h.answer
-}
-
-// "My answers" — the caller's past Q&A from query_log, re-rendered with no /ask call.
+// "My answers" — the caller's conversations, most-recently-active first. Expanding one
+// re-renders its turns from query_log (no /ask call); "Resume" re-opens it in Ask.
 export function History() {
   const [filter, setFilter] = useState('') // versionId, or '' for all
   const [manuals, setManuals] = useState<HistoryManual[]>([])
-  const [entries, setEntries] = useState<HistoryEntry[]>([])
+  const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [turns, setTurns] = useState<Record<string, HistoryEntry[]>>({})
   const [cite, setCite] = useState<{ versionId: string; page: number; quote: string } | null>(null)
-  // Bumped on every filter change; loadMore discards a response whose gen is stale.
   const gen = useRef(0)
 
   useEffect(() => {
     historyManuals().then(setManuals).catch(() => setManuals([]))
   }, [])
 
-  // Fetch on mount and whenever the manual filter changes. State is only touched in the
-  // async callbacks (never synchronously in the effect body); the old list stays visible
-  // until the new page arrives, so no loading flash between filters.
   useEffect(() => {
     gen.current += 1
     const myGen = gen.current
-    listMyHistory({ versionId: filter || undefined, limit: PAGE })
+    listMySessions({ versionId: filter || undefined, limit: PAGE })
       .then((rows) => {
         if (gen.current !== myGen) return
-        setEntries(rows)
+        setSessions(rows)
         setDone(rows.length < PAGE)
         setOpenId(null)
         setError(null)
@@ -51,23 +51,36 @@ export function History() {
   }, [filter])
 
   async function loadMore() {
-    const last = entries[entries.length - 1]
+    const last = sessions[sessions.length - 1]
     if (!last) return
     const myGen = gen.current
     setLoading(true)
     try {
-      const rows = await listMyHistory({
+      const rows = await listMySessions({
         versionId: filter || undefined,
-        before: { at: last.at, id: last.id },
+        before: { lastAt: last.lastAt, id: last.sessionId },
         limit: PAGE,
       })
-      if (gen.current !== myGen) return // filter changed mid-fetch — drop this page
-      setEntries((e) => [...e, ...rows])
+      if (gen.current !== myGen) return
+      setSessions((s) => [...s, ...rows])
       setDone(rows.length < PAGE)
     } catch (e) {
       if (gen.current === myGen) setError(errMessage(e))
     } finally {
       if (gen.current === myGen) setLoading(false)
+    }
+  }
+
+  function toggle(s: SessionSummary) {
+    if (openId === s.sessionId) {
+      setOpenId(null)
+      return
+    }
+    setOpenId(s.sessionId)
+    if (!turns[s.sessionId]) {
+      getSession(s.sessionId)
+        .then((t) => setTurns((m) => ({ ...m, [s.sessionId]: t })))
+        .catch((e) => setError(errMessage(e)))
     }
   }
 
@@ -78,8 +91,8 @@ export function History() {
           <div>
             <h1>My answers</h1>
             <p className="subtitle">
-              Every question you’ve asked, newest first — shown exactly as answered, with no new
-              lookup.
+              Your conversations, most recent first — each shown exactly as answered, with no
+              new lookup. Open one and pick up where you left off.
             </p>
           </div>
           {manuals.length > 1 && (
@@ -103,38 +116,44 @@ export function History() {
       <div className="page-body">
         {error && <div className="msg err">{error}</div>}
 
-        {!loading && !error && entries.length === 0 && (
+        {!loading && !error && sessions.length === 0 && (
           <p className="empty">
-            No questions yet.
+            No conversations yet.
             <br />
             Open a manual from the library and ask something.
           </p>
         )}
 
-        {entries.map((h) => {
-          const open = openId === h.id
+        {sessions.map((s) => {
+          const open = openId === s.sessionId
+          const t = turns[s.sessionId]
           return (
-            <div key={h.id} className={open ? 'hist-row open' : 'hist-row'}>
-              <button className="hist-head" onClick={() => setOpenId(open ? null : h.id)}>
-                <span className="hist-q">{h.question}</span>
-                {!open && <span className="hist-snip">{snippet(h)}</span>}
+            <div key={s.sessionId} className={open ? 'hist-row open' : 'hist-row'}>
+              <button className="hist-head" onClick={() => toggle(s)}>
+                <span className="hist-q">{s.title}</span>
                 <span className="hist-meta">
-                  {h.manualLabel} · {relDate(h.at)}
+                  {s.manualLabel} · {s.turnCount} {s.turnCount === 1 ? 'question' : 'questions'} ·{' '}
+                  {relDate(s.lastAt)}
                 </span>
               </button>
               {open && (
                 <div className="hist-expand">
-                  <AnswerCard
-                    result={h}
-                    manual={h.manualLabel}
-                    onCite={(page, quote) => setCite({ versionId: h.versionId, page, quote })}
-                  />
-                  {h.manualActive && (
-                    <Link
-                      className="hist-reask"
-                      to={`/ask/${h.versionId}?q=${encodeURIComponent(h.question)}`}
-                    >
-                      Re-ask this against the current version →
+                  {!t && <p className="turn-pending">Loading…</p>}
+                  {t?.map((h) => (
+                    <section key={h.id} className="turn">
+                      <p className="turn-q">{h.question}</p>
+                      <AnswerCard
+                        result={h}
+                        manual={s.manualLabel}
+                        onCite={(page, quote) =>
+                          setCite({ versionId: s.versionId, page, quote })
+                        }
+                      />
+                    </section>
+                  ))}
+                  {s.manualActive && (
+                    <Link className="hist-reask" to={`/ask/${s.versionId}?s=${s.sessionId}`}>
+                      Resume this conversation →
                     </Link>
                   )}
                 </div>
@@ -144,7 +163,7 @@ export function History() {
         })}
 
         {loading && <p className="turn-pending">Loading…</p>}
-        {!loading && !done && entries.length > 0 && (
+        {!loading && !done && sessions.length > 0 && (
           <button className="secondary hist-more" onClick={loadMore}>
             Load more
           </button>
@@ -157,7 +176,9 @@ export function History() {
             versionId={cite.versionId}
             page={cite.page}
             quote={cite.quote}
-            manualLabel={entries.find((e) => e.versionId === cite.versionId)?.manualLabel ?? 'Source'}
+            manualLabel={
+              sessions.find((s) => s.versionId === cite.versionId)?.manualLabel ?? 'Source'
+            }
             onClose={() => setCite(null)}
           />
         </Suspense>
