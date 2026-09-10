@@ -190,6 +190,34 @@ Deferred: per-PR full-RAGAS eval gating, plus everything already deferred (editi
 comparison, batch Q&A, reranker, citation export, Library search/filter, monitoring,
 Supabase Pro). 2 phases, `/code-review` at each.
 
+## v1.2 — conversational memory + session-grouped history (approved 2026-09-10)
+
+A deliberate evolution of `/ask` from single-turn to conversational, plus "My answers"
+becoming a re-openable conversation list. Contract:
+**`specs/2026-09-10-verbatim-v1.2.md`**.
+
+- **Conversational `/ask`** — the answer LLM now sees the conversation history **and** the
+  retrieved chunks (ChatGPT-style, user's call over the safer condense-only option). History
+  = a **recent token-budget window of verbatim turns + a rolling LLM summary of older turns**
+  (persisted per session; summarisation fires only when the window slides). A cheap condense
+  step rewrites a follow-up into a standalone retrieval query; retrieval stays a single
+  RLS-enforced, one-version `match_chunks`. **Three response kinds** replace "cited or
+  abstained": *grounded* (≥1 citation), *abstained*, *meta* (about the conversation, no
+  citation, no manual claim).
+- **The grounding guarantee is held by a history-aware `verify`** — every factual claim must
+  trace to *this turn's* retrieved chunks; a claim supported only by the transcript is
+  dropped (→ abstain if that empties the answer). This is the load-bearing design work and
+  the release gate.
+- **Sessions** — `query_log` gains `session_id` + `turn`; the Ask thread persists across
+  reload; conversations are version-locked and **resumable** from "My answers".
+
+Built as **one addendum, one ship** (not phase-by-phase): 3 checkpointed build increments
+(data model → conversational pipeline + evals → conversation-list UI), `/code-review` at
+each, then a single whole-addendum release-qa Verify + Ship with the **full** eval suite as
+the blocker. Delivery model (b): single dev + review gates — Phase 2 is the most
+quality-sensitive change in the project. Deferred: any agent/planner loop, cross-session
+memory, conversation sharing/renaming, auto-titles.
+
 ## Reference material
 
 - Verbatim v1 PRD — https://claude.ai/code/artifact/b7e2a975-2846-4f2b-b07a-513aa93a24e4

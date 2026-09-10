@@ -8,8 +8,9 @@ current release; the mobile-navigation bug from the re-skin is already fixed (`7
 **`specs/2026-09-09-verbatim-v1.1.md`** and being built. Upload-lifecycle recovery
 (retry / replace / delete a failed or stuck `pending` upload) shipped
 (`specs/2026-09-10-verbatim-v1.1.1-upload-recovery.md`). The **forgot-password flow** and the
-**infra-fix bundle** below are spec'd in **`specs/2026-09-10-verbatim-v1.1.2.md`** (approved
-2026-09-10) — the Infra/process items are moving there. The rest below is unscheduled.
+**infra-fix bundle** shipped (`specs/2026-09-10-verbatim-v1.1.2.md`). **v1.2 — conversational
+`/ask` + session-grouped, resumable "My answers"** is spec'd in
+**`specs/2026-09-10-verbatim-v1.2.md`** (approved 2026-09-10). The rest below is unscheduled.
 
 ---
 
