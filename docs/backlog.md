@@ -108,8 +108,12 @@ polish or a heavier retrieval lift, not answer accuracy.
   own published upload at all. And "Archive" lives only in Admin → Manuals. Decide: hard-delete
   for `active` / `archived` (guarded when `query_log` history exists) vs. surfacing Archive on
   the Library row + Review page. Size: M.
-- **Archived-manual signposting** — a student following a link to a now-archived manual gets a
-  bare "not found". Show "this version was retired / superseded by X". Size: S.
+- **Archived-manual signposting** — ✅ *partly done 2026-09-10*: `/history` now shows "This
+  manual version has been retired — you can still read this conversation, but not continue it"
+  on a card whose manual is archived (Resume stays hidden). `getAskVersion` already throws a
+  clean "That manual version is not available." for a student hitting `/ask/:id` on an
+  archived version. Still open: a "superseded by X →" link on the Library row / locked Ask
+  header.
 - **Upload metadata validation** — a junk title (`"1994"`) passed (`required` only checks
   non-empty); no min length, and nothing enforces the "public domain" attestation (an MCMI-III,
   copyrighted, was uploaded under it). A garbage catalog row also feeds a garbage facts block
@@ -117,12 +121,22 @@ polish or a heavier retrieval lift, not answer accuracy.
 - **Delete a conversation** — `query_log` / `chat_sessions` have no delete policy (eval
   corpus). Needs a soft-delete / `hidden` flag on `chat_sessions` — keep the rows, hide the
   session from "My answers". Size: S.
-- ~~**Copy a conversation**~~ — ✅ done 2026-09-10: "Copy conversation" in the
-  expanded `/history` card copies the transcript (`Q: … / A: …`, manual + title header) via
-  `navigator.clipboard`. Per-answer copy / share-link still open.
-- **Rename a conversation** — the title is auto-derived from the first question, not editable.
-  Size: XS.
-- **Search across conversations** in "My answers". Size: S.
+- ~~**Copy a conversation**~~ — ✅ done 2026-09-10: "Copy conversation" in the expanded
+  `/history` card copies the transcript (`Q: … / A: …`, manual + title header) —
+  `navigator.clipboard` with a `document.execCommand` fallback and an inline "Copied" /
+  "Press ⌘/Ctrl-C to copy" hint. Per-answer copy / share-link still open.
+- ~~**Rename a conversation**~~ — ✅ done 2026-09-10: "Rename" in the expanded card →
+  `window.prompt` → `renameSession()` (`chat_sessions` UPDATE under the existing
+  `chat_sessions_update_self` RLS, title trimmed + capped at 120). No migration needed.
+- ~~**Search across conversations**~~ — ✅ done 2026-09-10: a "Search conversations…" box in
+  the `/history` header filters the loaded list on title + manual label (client-side; only
+  searches pages already loaded).
+- **Empty conversations from a half-failed turn** — a `chat_sessions` row can have
+  `turn_count ≥ 1` but zero `query_log` rows (an `/ask` that advanced the session via
+  `chat_session_next_turn` then failed before `safeLog`, e.g. an LLM 503). `/history` now
+  shows "This conversation has no saved answers." on expand, but these still clutter the
+  list. Options: filter them out in `listMySessions` (needs a join/exists on `query_log`),
+  or a cleanup job. Seen a lot in the eval user's history. Size: S.
 - **Account / settings page** — can't change password while signed in (only via the
   forgot-password email round-trip), can't see own email / role, no display-name concept.
   Size: M.

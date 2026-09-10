@@ -240,6 +240,19 @@ export async function listMySessions(
   return ((data ?? []) as unknown as RawSessionRow[]).map(toSessionSummary)
 }
 
+// Rename a conversation. RLS (chat_sessions_update_self) restricts it to the owner's rows;
+// the title is trimmed + capped so a pathological value can't bloat the list.
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  const clean = title.trim().slice(0, 120)
+  if (!clean) throw new Error('Title cannot be empty.')
+  const { error } = await supabase
+    .from('chat_sessions')
+    .update({ title: clean })
+    .eq('id', sessionId)
+    .eq('user_id', await currentUserId())
+  if (error) throw new Error(error.message)
+}
+
 export type HistoryManual = { versionId: string; label: string }
 
 type RawManualRow = { version_id: string; manual_versions: EmbeddedManual }

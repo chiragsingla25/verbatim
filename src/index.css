@@ -864,12 +864,31 @@ a.lib-row:hover {
 }
 
 /* ── History / "My answers" ── */
+.hist-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.hist-search {
+  width: auto;
+  min-width: 12rem;
+  max-width: 20rem;
+  font-size: 12.5px;
+  padding: 8px 12px;
+}
 .hist-filter {
   width: auto;
   min-width: 12rem;
   max-width: 20rem;
   font-size: 12.5px;
   padding: 8px 12px;
+}
+.hist-retired {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--om-text-tertiary);
+  font-style: italic;
 }
 .hist-row {
   background: var(--om-bg-panel);
@@ -1559,6 +1578,15 @@ mark.cited {
   .page-head-row {
     flex-direction: column;
     gap: 12px;
+  }
+  .hist-controls {
+    width: 100%;
+    justify-content: stretch;
+  }
+  .hist-search,
+  .hist-filter {
+    flex: 1;
+    max-width: none;
   }
 
   /* Library rows: drop the header, stack each card, let cells wrap under the title */

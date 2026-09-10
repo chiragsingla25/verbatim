@@ -7,6 +7,7 @@ import {
   getSession,
   historyManuals,
   listMySessions,
+  renameSession,
   type SessionSummary,
 } from '../lib/api'
 import { errMessage, relDate } from '../lib/format'
@@ -29,21 +30,57 @@ export function History() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [turns, setTurns] = useState<Record<string, HistoryEntry[]>>({})
   const [cite, setCite] = useState<{ versionId: string; page: number; quote: string } | null>(null)
-  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [copyMsg, setCopyMsg] = useState<{ id: string; text: string } | null>(null)
+  const [q, setQ] = useState('') // free-text filter over loaded conversations
   const gen = useRef(0)
+
+  const needle = q.trim().toLowerCase()
+  const shown = needle
+    ? sessions.filter(
+        (s) =>
+          s.title.toLowerCase().includes(needle) || s.manualLabel.toLowerCase().includes(needle),
+      )
+    : sessions
+
+  async function rename(s: SessionSummary) {
+    const next = window.prompt('Rename this conversation:', s.title)
+    if (next == null || next.trim() === s.title) return
+    try {
+      await renameSession(s.sessionId, next)
+      setSessions((rows) =>
+        rows.map((r) => (r.sessionId === s.sessionId ? { ...r, title: next.trim().slice(0, 120) } : r)),
+      )
+    } catch (e) {
+      setError(errMessage(e))
+    }
+  }
 
   async function copyConversation(s: SessionSummary, entries: HistoryEntry[]) {
     const body = entries
       .map((h) => `Q: ${h.question}\nA: ${h.abstained ? 'Not found in this version.' : h.answer}`)
       .join('\n\n')
     const text = `${s.manualLabel} — ${s.title}\n\n${body}\n`
+    let ok = false
     try {
       await navigator.clipboard.writeText(text)
-      setCopiedId(s.sessionId)
-      setTimeout(() => setCopiedId((c) => (c === s.sessionId ? null : c)), 2000)
+      ok = true
     } catch {
-      setError('Could not copy to the clipboard.')
+      // Legacy fallback for older / permission-restricted browsers.
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        ok = document.execCommand('copy')
+        ta.remove()
+      } catch {
+        ok = false
+      }
     }
+    setCopyMsg({ id: s.sessionId, text: ok ? 'Copied' : 'Press ⌘/Ctrl-C to copy' })
+    setTimeout(() => setCopyMsg((m) => (m?.id === s.sessionId ? null : m)), 2500)
   }
 
   useEffect(() => {
@@ -110,21 +147,31 @@ export function History() {
               new lookup. Open one and pick up where you left off.
             </p>
           </div>
-          {manuals.length > 1 && (
-            <select
-              className="hist-filter"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              aria-label="Filter by manual"
-            >
-              <option value="">All manuals</option>
-              {manuals.map((m) => (
-                <option key={m.versionId} value={m.versionId}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          )}
+          <div className="hist-controls">
+            <input
+              className="hist-search"
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search conversations…"
+              aria-label="Search conversations"
+            />
+            {manuals.length > 1 && (
+              <select
+                className="hist-filter"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                aria-label="Filter by manual"
+              >
+                <option value="">All manuals</option>
+                {manuals.map((m) => (
+                  <option key={m.versionId} value={m.versionId}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
       </header>
 
@@ -139,7 +186,11 @@ export function History() {
           </p>
         )}
 
-        {sessions.map((s) => {
+        {!loading && sessions.length > 0 && shown.length === 0 && (
+          <p className="empty">No conversations match “{q.trim()}”.</p>
+        )}
+
+        {shown.map((s) => {
           const open = openId === s.sessionId
           const t = turns[s.sessionId]
           return (
@@ -154,6 +205,9 @@ export function History() {
               {open && (
                 <div className="hist-expand">
                   {!t && <p className="turn-pending">Loading…</p>}
+                  {t && t.length === 0 && (
+                    <p className="turn-pending">This conversation has no saved answers.</p>
+                  )}
                   {t?.map((h) => (
                     <section key={h.id} className="turn">
                       <p className="turn-q">{h.question}</p>
@@ -166,14 +220,23 @@ export function History() {
                       />
                     </section>
                   ))}
+                  {!s.manualActive && (
+                    <p className="hist-retired">
+                      This manual version has been retired — you can still read this
+                      conversation, but not continue it.
+                    </p>
+                  )}
                   <div className="hist-actions">
+                    <button type="button" className="link" onClick={() => rename(s)}>
+                      Rename
+                    </button>
                     {t && t.length > 0 && (
                       <button
                         type="button"
                         className="link"
                         onClick={() => copyConversation(s, t)}
                       >
-                        {copiedId === s.sessionId ? 'Copied' : 'Copy conversation'}
+                        {copyMsg?.id === s.sessionId ? copyMsg.text : 'Copy conversation'}
                       </button>
                     )}
                     {s.manualActive && (
