@@ -218,6 +218,33 @@ the blocker. Delivery model (b): single dev + review gates — Phase 2 is the mo
 quality-sensitive change in the project. Deferred: any agent/planner loop, cross-session
 memory, conversation sharing/renaming, auto-titles.
 
+## Accuracy MVP — document facts + hybrid retrieval (approved 2026-09-11)
+
+A scoped evolution of `/ask` retrieval to cut false "not found" answers, after a v1.2
+post-ship audit. Contract: **`specs/2026-09-11-verbatim-accuracy-mvp.md`**.
+
+- **Restore the eval corpus + CI gate** — the 3 public-domain sample manuals were archived
+  during v1.2 admin testing (only a copyrighted MCMI-III left active), so `run_evals.py`
+  can't run. Un-archive the 3, archive the MCMI-III, `manifest.json` unchanged. Add a
+  **full-`run_evals.py` job on `push: main`** (blocks `deploy.yml`); `--quick` stays the
+  per-PR gate.
+- **Document facts block (C1)** — instrument / title / edition / year / publisher / page
+  count / section count from `manual_versions`, injected into the answer **and** verify
+  prompts as a reserved synthetic chunk `__facts__`. Metadata questions become `grounded`
+  citing `__facts__` instead of abstaining. Transcript + summary still never reach verify.
+- **Hybrid retrieval (C2)** — new `match_chunks_hybrid` RPC (`security invoker`, one-version
+  filter) fusing pgvector `<=>` with Postgres `tsvector` / `websearch_to_tsquery` via RRF
+  (k=60). A generated `tsv` column + GIN index — no re-embed, no re-ingest. Old
+  `match_chunks` kept for rollback. **RRF is not a reranker** — "no reranker in v1" holds.
+
+Ship model: **Phase 1 ships on its own, immediately** (un-blocks evals); **Phases 2–3 build
+sequentially, then one whole-addendum release-qa + ship**. Delivery model (b): single dev +
+`/code-review` at each phase boundary — Phases 2–3 touch the security boundary
+(`match_chunks`) and the accuracy boundary (answer/verify prompts). Deferred to `docs/backlog.md`
+("v1.2 post-ship audit"): per-answer feedback (B11, its own spec next), the ingest-v2
+retrieval stretch (outline + summary artifacts, contextual embeddings), reranker, and every
+Track A/B UX item.
+
 ## Reference material
 
 - Verbatim v1 PRD — https://claude.ai/code/artifact/b7e2a975-2846-4f2b-b07a-513aa93a24e4
