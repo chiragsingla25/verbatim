@@ -57,13 +57,16 @@ export function Ask() {
     getSession(sessionId)
       .then((entries) => {
         if (entries.length === 0) return
-        setTurns(
-          entries.map((e) => ({
-            id: nextId.current++,
-            question: e.question,
-            pending: false,
-            result: { answer: e.answer, citations: e.citations, abstained: e.abstained },
-          })),
+        // don't clobber a turn the user submitted while this was in flight
+        setTurns((prev) =>
+          prev.length > 0
+            ? prev
+            : entries.map((e) => ({
+                id: nextId.current++,
+                question: e.question,
+                pending: false,
+                result: { answer: e.answer, citations: e.citations, abstained: e.abstained },
+              })),
         )
       })
       .catch(() => {
