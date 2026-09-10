@@ -245,6 +245,38 @@ sequentially, then one whole-addendum release-qa + ship**. Delivery model (b): s
 retrieval stretch (outline + summary artifacts, contextual embeddings), reranker, and every
 Track A/B UX item.
 
+## v1.3 — usefulness + UI warmth (approved 2026-09-12)
+
+A UI / product addendum after the `docs/product-review-2026-09.md` walkthrough + market
+comparison. Contract: **`specs/2026-09-12-verbatim-v1.3-usefulness.md`**. **No pipeline
+change** — pure SPA, no migration, no `functions deploy`.
+
+- **Tables in answers** — the SPA reads a cited chunk's `content` (JWT-scoped, display only)
+  and renders a real table when `table_ref` is set. **Citation viewer v2** — full-doc
+  scroll / zoom / prev-next / "search this manual" instead of one frozen page.
+- **Staged answer progress** (retrieving → drafting → checking → verified, client-timed —
+  real token streaming deferred), **starter questions** per instrument, **copy with
+  citation**, a **manual detail page** at `/manual/:versionId`.
+- **UI warmth pass** for a psychologist audience — colleague-voice microcopy (esp. the
+  abstain card), rotating honest loading lines, per-instrument monogram + tint,
+  citation-as-receipt micro-animation, warm dark mode. Explicitly **not**: badges / streaks /
+  mascots / emoji-UI / jokey errors / motion that delays info.
+- **Tier-3 in:** `/` focus, `Esc` close, one-card onboarding, "N questions today".
+
+Deferred to their own specs / backlog: real streaming · cross-edition compare · shareable
+answer link · PWA · admin metrics · post-publish metadata edit. Delivery model (b): single
+dev + `/code-review` per phase (3 phases, one ship). Effort: ~one substantial phase each.
+
+## Feedback loop — the accuracy instrument (approved 2026-09-12)
+
+Small, self-contained, **belongs right after the accuracy-mvp ships**. Contract:
+**`specs/2026-09-12-verbatim-feedback.md`**. A `feedback` table (self-insert, self/admin
+read, narrow self-update, no delete — evidence posture like `query_log`), a quiet 👍/👎 + "what
+was off?" on every grounded / abstained answer, a minimal read-only 👎 list in Admin, and an
+`evals/feedback_review.py` that prints 👎 rows as curatable golden-dataset candidates (a human
+decides — never automated). This is how the "high accuracy" claim gets measured in the wild
+and how the golden set grows past its 24 seeded cases.
+
 ## Reference material
 
 - Verbatim v1 PRD — https://claude.ai/code/artifact/b7e2a975-2846-4f2b-b07a-513aa93a24e4

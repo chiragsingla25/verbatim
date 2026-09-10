@@ -195,45 +195,35 @@ All three share one corpus re-ingest, so they ship together or not at all:
 A full walkthrough + market comparison (vs ChatPDF / Humata / ChatDOC / NotebookLM /
 OpenEvidence / Harvey / Glean). Verbatim's edge — **version isolation, explicit abstention,
 a verify pass, $0 / OSS** — is real and rare. These are the gaps the market has closed that
-fit Verbatim's "look up a fact in a manual, safely" mission. Grouped by tier; **none change
-the architecture** (RAG, single retriever, deterministic).
+fit Verbatim's "look up a fact in a manual, safely" mission. **Most of Tier 1–3 is now
+spec'd** (2026-09-12, via app-architect) — see below.
 
-### Tier 1 — accuracy & trust
+### → v1.3 usefulness + UI warmth (`specs/2026-09-12-verbatim-v1.3-usefulness.md`)
 
-- **Render tables in answers** — norm / cutoff / RCI / SEM tables *are* the content
-  clinicians look up. Chunks keep tables whole (`document_chunks.table_ref`), but the answer
-  step flattens them to prose. When a cited chunk is a table, carry it through as Markdown
-  and render a real table in the answer card. Highest content ROI. Size: M.
-- **Per-answer feedback + correction** (= B11, promoted) — 👍/👎 + optional "what was wrong",
-  a `feedback` table (RLS self-insert, self/admin read, no update/delete like `query_log`),
-  and a weekly job turning 👎 into candidate golden cases. The instrument for *earning* the
-  accuracy claim. Its own small spec, right after the accuracy-mvp. Size: M.
-- **Citation viewer v2** — `SourceSlideOver` shows one frozen page. Add full-doc scroll,
-  zoom, prev/next, and a "search this manual" box (plain text match over the version's
-  chunks — no LLM). Size: M.
+Tables in answers · citation viewer v2 · staged answer progress · starter questions · copy
+with citation · manual detail page · a psychologist-audience UI warmth pass · Tier-3:
+`/` focus, `Esc` close, one-card onboarding, "N questions today". **No pipeline change.**
 
-### Tier 2 — usefulness (candidate "v1.3 — usefulness" spec, via app-architect after the accuracy-mvp)
+### → feedback loop (`specs/2026-09-12-verbatim-feedback.md`)
 
-- **Streaming** the answer token-by-token — the free model is 5–15 s and the spinner reads
-  as broken. No accuracy cost. Size: M (Edge Function must stream; `verify` still runs before
-  the final answer is committed, so stream the draft then reconcile — design in the spec).
-- **Starter questions** per manual on the Ask empty state — 3–5 authored per instrument, or
-  derived from the outline once ingest-v2 lands. Size: S.
-- **Export a cited answer** — "Copy with citation" per answer (answer text + `Manual · p.N` +
-  the quote); optionally a read-only shareable answer link. Size: S–M.
-- **Cross-edition compare** — a two-pane read-only view, each pane a normal locked Ask, no
-  blending and no new retrieval path. The highest-value latent feature for the "editions that
-  quietly disagree" problem in the proposal. Size: M.
-- **Manual detail page** — a landing page per version (instrument, edition, publisher, page
-  count, section outline, "ask about this" CTA) instead of jumping straight into Ask. Size: S.
+Per-answer 👍/👎 + "what was off", a `feedback` table, a minimal Admin 👎 list, an
+`evals/feedback_review.py` that prints curatable golden candidates (human decides). Ships
+right after the accuracy-mvp.
 
-### Tier 3 — polish & retention
+### Still deferred — own specs later
+
+- **Real token streaming** — the Edge Function must stream + never show an unverified claim
+  as final (`verify` is a 2nd LLM call after the draft). v1.3 ships *staged client-side
+  progress* instead. Size: M.
+- **Cross-edition compare** — two read-only locked Ask panes over two versions of one
+  instrument; no blending, no new retrieval path. Highest-value latent feature for the
+  "editions that quietly disagree" problem in the proposal. Size: M.
+- **Shareable answer link** — a read-only public path to one `query_log` row; a new RLS /
+  privacy surface (needs a share token, opt-in, a decision on what's exposed). Size: M.
+
+### Still on the backlog — Tier 3, not in v1.3
 
 - **PWA** — manifest + a service worker caching the app shell; installable icon. Size: S.
 - **Admin metrics** — question volume, abstention rate, top manuals, corpus size vs the
   500 MB free-tier ceiling. Size: M.
-- **Onboarding / first-run** — a one-screen "how Verbatim works" (version lock, abstention,
-  citations). Size: S.
-- **Keyboard shortcuts** — `/` to focus the composer, `Esc` to close the slide-over. Size: XS.
-- **Usage indicator** — "N questions today" for the user. Size: XS.
-- **Edit a manual's metadata after publish** (Admin) — currently frozen at upload. Size: S.
+- **Post-publish metadata edit** (Admin) — a manual's catalog row is frozen at upload. Size: S.
