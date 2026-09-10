@@ -1115,6 +1115,18 @@ mark.cited {
   color: var(--om-accent-primary-hover);
   border-color: transparent;
 }
+/* __facts__ citation — catalog metadata, not a clickable page */
+.cite-chip.meta {
+  background: transparent;
+  color: var(--om-text-tertiary);
+  border-style: dashed;
+  cursor: default;
+}
+.cite-chip.meta:hover {
+  background: transparent;
+  color: var(--om-text-tertiary);
+  border-color: var(--om-border-input);
+}
 
 /* abstain card */
 .abstain-card {

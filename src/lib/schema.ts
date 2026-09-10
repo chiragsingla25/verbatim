@@ -56,3 +56,9 @@ export type AppRole = (typeof APP_ROLES)[number]
 
 // The "not found in this version" answer. Every abstention uses exactly this string.
 export const ABSTAIN_MESSAGE = 'Not found in this version.'
+
+// Reserved chunkId for the deterministic document-facts block (accuracy-mvp C1):
+// catalog metadata about the version (pages, edition, year, publisher, instrument),
+// not a page of the manual. A citation to it renders as "Document metadata" — no
+// page link, no source slide-over.
+export const FACTS_CHUNK_ID = '__facts__'

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import type { AnswerResult, Citation } from '../lib/schema'
+import { type AnswerResult, type Citation, FACTS_CHUNK_ID } from '../lib/schema'
 
 // The rendered answer — grounded card (prose + inline citations + lead pull-quote +
 // "verified against source" row) or the amber abstain card. Extracted verbatim from
@@ -47,20 +47,23 @@ export function AnswerCard({
     )
   }
 
-  const pages = [...new Set(result.citations.map((c) => c.page))].sort((a, b) => a - b)
-  const lead = result.citations[0]
+  // __facts__ is catalog metadata, not a manual page — no page link, no source slide-over.
+  const factsCited = result.citations.some((c) => c.chunkId === FACTS_CHUNK_ID)
+  const pageCites = result.citations.filter((c) => c.chunkId !== FACTS_CHUNK_ID)
+  const pages = [...new Set(pageCites.map((c) => c.page))].sort((a, b) => a - b)
+  const lead = pageCites[0]
 
   return (
     <div className="answer-card">
-      <p className="answer-prose">{renderWithCitations(result.answer, result.citations, onCite)}</p>
+      <p className="answer-prose">{renderWithCitations(result.answer, pageCites, onCite)}</p>
 
       {lead && lead.quote.trim().length > 0 && (
         <blockquote className="answer-quote">“{lead.quote.trim()}”</blockquote>
       )}
 
-      {result.citations.length > 0 && (
+      {(pageCites.length > 0 || factsCited) && (
         <div className="cite-row">
-          {result.citations.map((c, i) => (
+          {pageCites.map((c, i) => (
             <button
               key={`${c.chunkId}-${i}`}
               className="cite-chip"
@@ -70,6 +73,7 @@ export function AnswerCard({
               [{i + 1}] p.{c.page}
             </button>
           ))}
+          {factsCited && <span className="cite-chip meta">Document metadata</span>}
         </div>
       )}
 
@@ -77,8 +81,13 @@ export function AnswerCard({
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
           <path d="M20 6 9 17l-5-5" />
         </svg>
-        Verified against source · {manual}
-        {pages.length > 0 && `, p. ${pages.join(', ')}`}
+        {pages.length > 0 ? (
+          <>
+            Verified against source · {manual}, p. {pages.join(', ')}
+          </>
+        ) : (
+          <>Answered from this version’s catalog metadata</>
+        )}
       </div>
     </div>
   )

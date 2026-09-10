@@ -30,6 +30,10 @@ export function Upload() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    if (instrumentName.trim().length < 2) return setError('Instrument name is too short.')
+    if (title.trim().length < 2) {
+      return setError('Version title is too short — name the edition, e.g. “PSS-10, 1994 scoring sheet”.')
+    }
     if (!file) return setError('Choose a PDF to upload.')
     if (!attestation) return setError('You must confirm you have the right to store this document.')
     setBusy(true)

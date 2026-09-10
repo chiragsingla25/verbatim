@@ -366,3 +366,32 @@ correctly through the pipeline and its tests).
   local run after the quota reset). The `full-evals` job itself tolerates this — a `429`
   surfaces as exit 2 → `::warning::` → the job passes, so the deploy is not blocked by a
   quota outage.
+
+### Phase 2 (app-developer)
+
+- **The facts block is implemented as a synthetic `RetrievedChunk`, not a new
+  `answerUserPrompt` / `verifyUserPrompt` parameter + `formatFactsBlock` formatter.**
+  `factsChunk(facts)` in `pipeline.ts` builds `{ chunkId: '__facts__', page: 0, section:
+  'metadata', content: <labelled block> }` and prepends it to the `pool` passed to the
+  existing prompt helpers — so `formatContext` renders it and the prompts stay byte-identical
+  (no signature change, no new prompt constant). `FACTS_CHUNK_ID` lives in `_shared/schema.ts`
+  (+ the `src/lib/schema.ts` mirror) since the SPA needs it too; `prompt.ts` is untouched.
+  Same intent as the spec, less surface.
+- **`ask()` now proceeds when `hits.length === 0` *if* `facts` is non-null** (a metadata
+  question with weak chunk retrieval must still reach the answer step). Both empty → still
+  short-circuits to `abstain`.
+- **`getFacts` and `embed` run in `Promise.all`** — the facts RPC adds no latency.
+- **`__facts__` is kept out of `query_log.retrieved`** (a source, not a retrieved chunk) but
+  may appear in `query_log.citations`. The verify "+2 extra" context chunks exclude it; a
+  cited `__facts__` is always in the verify context.
+- **Upload guard:** `Upload.tsx` rejects `instrumentName` / `title` shorter than 2 chars
+  client-side (server CHECK / attestation enforcement stays out of scope).
+- **Golden cases added:** `audit-page-count` ("41"), `audit-publication-year` ("2001") —
+  `shouldAbstain: false`, digit-only `expectedAnswerContains`, no `expectedPage`.
+- **Checkpoint status:** deno 37/37 (incl. 4 new facts tests), `deno check` / lint / unit /
+  build green; `version_facts` verified live — returns the row for an active version, `[]`
+  for one a student can't see (archived) → a hidden version yields no facts block. The
+  **LLM-dependent checkpoint** (metadata cases returning `grounded` from prod `/ask`,
+  abstention ≥ baseline) is deferred with Phase 1's baseline to one batched `run_evals.py`
+  after the OpenRouter daily-cap reset. `ask` is **not** redeployed to prod yet — the
+  `version_facts` migration is applied but dormant until then.

@@ -13,6 +13,7 @@ import {
   answerDraftSchema,
   answerResultSchema,
   type Citation,
+  FACTS_CHUNK_ID,
   verifyResultSchema,
 } from '../_shared/schema.ts'
 import {
@@ -54,9 +55,25 @@ export type AskInput = { versionId: string; question: string; sessionId: string 
 
 export type AnswerKind = 'grounded' | 'abstained' | 'meta'
 
+// Catalog metadata about the one version in scope (accuracy-mvp C1). Rendered into a
+// synthetic __facts__ chunk so a metadata question ("how many pages") is grounded, not
+// abstained. NOT a retriever, NOT the open web — the version is already locked.
+export type DocFacts = {
+  instrumentName: string
+  title: string
+  edition: string | null
+  year: number | null
+  publisher: string | null
+  pageCount: number | null
+  sectionCount: number
+  supersededByTitle: string | null
+}
+
 export type AskDeps = {
   embed: (text: string) => Promise<number[]>
   matchChunks: (versionId: string, embedding: number[], k: number) => Promise<RetrievedChunk[]>
+  // Catalog facts for the version, or null when unavailable / not visible to the caller.
+  getFacts: (versionId: string) => Promise<DocFacts | null>
   chat: ChatFn
   // Start-or-advance the session; returns this turn's 1-based number.
   nextTurn: (sessionId: string, versionId: string, title: string) => Promise<number>
@@ -157,6 +174,28 @@ function parseVerify(o: unknown) {
 function looksLikeAbstention(text: string): boolean {
   const t = text.trim().toLowerCase()
   return t === '' || t === ABSTAIN_MESSAGE.toLowerCase() || t.startsWith('not found in this version')
+}
+
+// The __facts__ synthetic chunk: catalog metadata rendered as a citable CONTEXT chunk.
+// It flows through the normal answer/verify prompts (formatContext) with chunkId
+// __facts__, page 0, section 'metadata'. A claim it backs is as trustworthy as a chunk.
+function factsChunk(f: DocFacts): RetrievedChunk {
+  const line = (label: string, v: string | number | null) =>
+    `${label}: ${v === null || v === '' ? 'not recorded' : v}`
+  const body = [
+    'DOCUMENT METADATA — catalog facts about this manual version (not a page of the manual).',
+    'Use this to answer questions about the document itself — its length, edition, year,',
+    `publisher, or which instrument it covers. Cite it as chunkId "${FACTS_CHUNK_ID}".`,
+    line('Instrument', f.instrumentName),
+    line('Version title', f.title),
+    line('Edition', f.edition),
+    line('Year', f.year),
+    line('Publisher', f.publisher),
+    line('Length', f.pageCount === null ? null : `${f.pageCount} pages`),
+    `Sections: ${f.sectionCount}`,
+    ...(f.supersededByTitle ? [`Superseded by: ${f.supersededByTitle}`] : []),
+  ].join('\n')
+  return { chunkId: FACTS_CHUNK_ID, page: 0, section: 'metadata', content: body, tableRef: null, score: 0 }
 }
 
 export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult> {
@@ -273,13 +312,18 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
     return result
   }
 
-  // 1. retrieve (RLS + version filter live in match_chunks) — uses the condensed query
-  const qvec = await deps.embed(retrievalQuery)
+  // 1. retrieve (RLS + version filter live in match_chunks) — uses the condensed query.
+  //    In parallel, fetch the deterministic catalog facts for this version.
+  const [qvec, facts] = await Promise.all([deps.embed(retrievalQuery), deps.getFacts(versionId)])
   const hits = await deps.matchChunks(versionId, qvec, RETRIEVE_K)
   const retrieved = hits.map((h) => ({ chunkId: h.chunkId, page: h.page, score: h.score }))
-  if (hits.length === 0) return abstain(retrieved)
+  // __facts__ is not a retrieved chunk (kept out of `retrieved` / the query_log), but it
+  // is a citable source in the answer + verify context. Proceed if there's anything to
+  // ground on — real chunks OR the facts block.
+  if (hits.length === 0 && !facts) return abstain(retrieved)
 
-  const validIds = new Set(hits.map((h) => h.chunkId))
+  const pool: RetrievedChunk[] = facts ? [factsChunk(facts), ...hits] : hits
+  const validIds = new Set(pool.map((h) => h.chunkId))
 
   // 2. generate a cited draft. The conversational rules are appended ONLY when there is
   //    history — a single-turn call keeps the exact v1.1.2 prompt (no abstention drift).
@@ -287,7 +331,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
   const draft = await chatJson(
     deps.chat,
     answerSystem,
-    answerUserPrompt(question, hits, conv),
+    answerUserPrompt(question, pool, conv),
     parseDraft,
   )
   if (!draft || draft.abstained) return abstain(retrieved)
@@ -297,10 +341,12 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
 
   // 3. verify: keep only supported claims. Send just the cited chunks (plus a couple more
   //    for context) — the whole retrieved set again would double the prompt for no gain.
+  //    __facts__, when cited, is always in the verify context so a metadata claim is
+  //    checkable rather than stripped.
   const citedIds = new Set(draftCitations.map((c) => c.chunkId))
   const verifyContext = [
-    ...hits.filter((h) => citedIds.has(h.chunkId)),
-    ...hits.filter((h) => !citedIds.has(h.chunkId)).slice(0, 2),
+    ...pool.filter((h) => citedIds.has(h.chunkId)),
+    ...pool.filter((h) => !citedIds.has(h.chunkId) && h.chunkId !== FACTS_CHUNK_ID).slice(0, 2),
   ]
   const verifySystem = hasHistory ? `${VERIFY_SYSTEM}\n\n${VERIFY_CONV_RULE}` : VERIFY_SYSTEM
   const verify = await chatJson(

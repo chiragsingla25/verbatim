@@ -2,13 +2,25 @@
 import { assertEquals } from '@std/assert'
 import { ABSTAIN_MESSAGE } from '../_shared/schema.ts'
 import { ANSWER_SYSTEM } from '../_shared/prompt.ts'
-import { ask, type AskDeps, type QueryLogRow } from './pipeline.ts'
+import { ask, type AskDeps, type DocFacts, type QueryLogRow } from './pipeline.ts'
+import { FACTS_CHUNK_ID } from '../_shared/schema.ts'
 
 const VID = '4325b634-805c-4097-b757-22aed89f13bf'
 const SID = '11111111-2222-4333-8444-555555555555'
 
 function chunk(id: string, page = 1, content = 'the PSS is scored by summing items') {
   return { chunkId: id, page, section: null, content, tableRef: null, score: 0.9 }
+}
+
+const FACTS: DocFacts = {
+  instrumentName: 'Perceived Stress Scale',
+  title: 'PSS-10, 1994 scoring sheet',
+  edition: null,
+  year: 1994,
+  publisher: 'Mind Garden, Inc.',
+  pageCount: 3,
+  sectionCount: 2,
+  supersededByTitle: null,
 }
 
 type Overrides = Partial<AskDeps> & {
@@ -37,6 +49,7 @@ function makeDeps(o: Overrides = {}) {
     nextTurn: () => Promise.resolve(1),
     getHistory: () => Promise.resolve({ summary: '', summaryThroughTurn: 0, priorTurns: [] }),
     saveSummary: () => Promise.resolve(),
+    getFacts: () => Promise.resolve(null),
     now: () => 1000,
     ...o,
   }
@@ -281,4 +294,59 @@ Deno.test('long history: older turns fold into the summary (saveSummary called)'
   await ask({ versionId: VID, sessionId: SID, question: 'q4?' }, deps)
   assertEquals(saved !== null, true)
   assertEquals(saved!.through >= 1, true) // at least turn 1 folded
+})
+
+// ── accuracy-mvp C1: the document facts block ───────────────────────────────
+
+Deno.test('facts: a metadata question with no retrieved chunks -> grounded, cites __facts__', async () => {
+  const { deps, logged } = makeDeps({
+    hits: [], // retrieval finds nothing for "how many pages"
+    getFacts: () => Promise.resolve(FACTS),
+    answerJson:
+      '{"answer":"This version is 3 pages.","citations":[{"chunkId":"__facts__","page":0,"quote":"Length: 3 pages"}],"abstained":false}',
+    verifyJson:
+      '{"supported":true,"unsupportedClaims":[],"revisedAnswer":"This version is 3 pages."}',
+  })
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'how many pages is this manual?' }, deps)
+  assertEquals(r.abstained, false)
+  assertEquals(r.kind, 'grounded')
+  assertEquals(r.citations.map((c) => c.chunkId), [FACTS_CHUNK_ID])
+  // __facts__ is a source, not a retrieved chunk — it never enters `retrieved` / query_log.
+  assertEquals(r.retrieved, [])
+  assertEquals(logged[0].retrieved, [])
+  assertEquals(logged[0].citations.map((c) => c.chunkId), [FACTS_CHUNK_ID])
+})
+
+Deno.test('facts: present but a content question still cites a real chunk, not __facts__', async () => {
+  const { deps } = makeDeps({
+    getFacts: () => Promise.resolve(FACTS),
+    // default answerJson cites c1 with a real quote
+  })
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'how is the PSS scored?' }, deps)
+  assertEquals(r.abstained, false)
+  assertEquals(r.citations.map((c) => c.chunkId), ['c1'])
+  assertEquals(r.retrieved.length, 2) // the two real hits, no __facts__
+})
+
+Deno.test('facts: verify does not strip a __facts__-backed claim', async () => {
+  const { deps, logged } = makeDeps({
+    getFacts: () => Promise.resolve(FACTS),
+    answerJson:
+      '{"answer":"Published in 1994 by Mind Garden.","citations":[{"chunkId":"__facts__","page":0,"quote":"Year: 1994"}],"abstained":false}',
+    // verify sees the __facts__ chunk in context and confirms it
+    verifyJson:
+      '{"supported":true,"unsupportedClaims":[],"revisedAnswer":"Published in 1994 by Mind Garden."}',
+  })
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'what year was this published?' }, deps)
+  assertEquals(r.abstained, false)
+  assertEquals(r.kind, 'grounded')
+  assertEquals(r.citations.map((c) => c.chunkId), [FACTS_CHUNK_ID])
+  assertEquals(logged[0].verify?.supported, true)
+})
+
+Deno.test('facts: getFacts null -> pre-facts behaviour (no chunks, no facts -> abstain)', async () => {
+  const { deps } = makeDeps({ hits: [], getFacts: () => Promise.resolve(null) })
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'how many pages?' }, deps)
+  assertEquals(r.abstained, true)
+  assertEquals(r.kind, 'abstained')
 })

@@ -116,6 +116,28 @@ Deno.serve(async (req) => {
             score: Number(r.score ?? 0),
           }))
         },
+        getFacts: async (vid) => {
+          // security-invoker RPC: RLS decides visibility, same as match_chunks. A
+          // version the caller can't see -> 0 rows -> null -> pipeline runs without facts.
+          const { data, error } = await supabase
+            .rpc('version_facts', { p_version_id: vid })
+            .maybeSingle()
+          if (error || !data) {
+            if (error) console.warn('version_facts:', error.message)
+            return null
+          }
+          const r = data as Record<string, unknown>
+          return {
+            instrumentName: String(r.instrument_name ?? ''),
+            title: String(r.title ?? ''),
+            edition: (r.edition as string | null) ?? null,
+            year: r.year == null ? null : Number(r.year),
+            publisher: (r.publisher as string | null) ?? null,
+            pageCount: r.page_count == null ? null : Number(r.page_count),
+            sectionCount: Number(r.section_count ?? 0),
+            supersededByTitle: (r.superseded_by_title as string | null) ?? null,
+          }
+        },
         chat: llmChat,
         logQuery: async (row: QueryLogRow) => {
           const { error } = await supabase.from('query_log').insert({ ...row, user_id: userId })
