@@ -21,6 +21,9 @@ export const answerResultSchema = z.object({
       score: z.number(),
     }),
   ),
+  // v1.2: which conversation + turn this answer belongs to.
+  sessionId: z.string(),
+  turn: z.number().int(),
 })
 
 export const verifyResultSchema = z.object({

@@ -989,6 +989,11 @@ a.lib-row:hover {
   color: var(--om-text-secondary);
   white-space: nowrap;
 }
+.ask-newchat {
+  margin-left: 14px;
+  flex-shrink: 0;
+  font-size: 12.5px;
+}
 
 .ask-thread {
   flex: 1;

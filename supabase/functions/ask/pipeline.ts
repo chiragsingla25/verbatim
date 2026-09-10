@@ -29,17 +29,21 @@ import { chatJson, type ChatFn } from '../_shared/llm.ts'
 // down instead by the lean verify context below.
 const RETRIEVE_K = 12
 
-export type AskInput = { versionId: string; question: string }
+export type AskInput = { versionId: string; question: string; sessionId: string }
 
 export type AskDeps = {
   embed: (text: string) => Promise<number[]>
   matchChunks: (versionId: string, embedding: number[], k: number) => Promise<RetrievedChunk[]>
   chat: ChatFn
+  // Start-or-advance the session; returns this turn's 1-based number.
+  nextTurn: (sessionId: string, versionId: string, title: string) => Promise<number>
   logQuery: (row: QueryLogRow) => Promise<void>
   now: () => number
 }
 
 export type QueryLogRow = {
+  session_id: string
+  turn: number
   version_id: string
   question: string
   answer: string
@@ -91,7 +95,11 @@ function looksLikeAbstention(text: string): boolean {
 export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult> {
   const started = deps.now()
   const versionId = input.versionId
+  const sessionId = input.sessionId
   const question = (input.question ?? '').trim()
+
+  // Every /ask call is a turn: start-or-advance the session before anything else.
+  const turn = await deps.nextTurn(sessionId, versionId, question)
 
   const abstain = async (
     retrieved: QueryLogRow['retrieved'],
@@ -103,8 +111,12 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
       abstained: true,
       versionId,
       retrieved,
+      sessionId,
+      turn,
     }
     await safeLog(deps, {
+      session_id: sessionId,
+      turn,
       version_id: versionId,
       question,
       answer: ABSTAIN_MESSAGE,
@@ -173,8 +185,12 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
     abstained: false,
     versionId,
     retrieved,
+    sessionId,
+    turn,
   })
   await safeLog(deps, {
+    session_id: sessionId,
+    turn,
     version_id: versionId,
     question,
     answer: finalAnswer,

@@ -9,6 +9,8 @@ export type HistoryEntry = {
   abstained: boolean
   citations: Citation[]
   versionId: string
+  sessionId: string
+  turn: number
   at: string
   // From the embedded manual_versions row — a fallback label when the version is no
   // longer visible to the caller (archived / removed). manualActive gates "Re-ask".
@@ -30,6 +32,8 @@ export type RawHistoryRow = {
   abstained: boolean
   citations: unknown
   version_id: string
+  session_id: string
+  turn: number
   at: string
   manual_versions: EmbeddedManual
 }
@@ -50,6 +54,8 @@ export function toHistoryEntry(r: RawHistoryRow): HistoryEntry {
     abstained: r.abstained,
     citations: parsed.success ? parsed.data : [],
     versionId: r.version_id,
+    sessionId: r.session_id,
+    turn: r.turn,
     at: r.at,
     manualLabel: manualLabel(r.manual_versions),
     manualActive: r.manual_versions?.status === 'active',

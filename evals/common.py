@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -166,8 +167,18 @@ def fetch_chunk_contents(cfg: Config, chunk_ids: list[str]) -> dict[str, str]:
     return {row["id"]: row["content"] for row in r.json()}
 
 
-def call_ask(cfg: Config, version_id: str, question: str, *, retries: int = 3) -> AskResponse:
+def call_ask(
+    cfg: Config,
+    version_id: str,
+    question: str,
+    *,
+    session_id: str | None = None,
+    retries: int = 3,
+) -> AskResponse:
+    """One /ask turn. `session_id` groups a multi-turn conversation; omit it and each call
+    is its own fresh 1-turn session (the single-turn eval default)."""
     token = eval_user_token(cfg)
+    sid = session_id or str(uuid.uuid4())
     last: Exception | None = None
     for attempt in range(retries):
         t0 = time.time()
@@ -176,7 +187,7 @@ def call_ask(cfg: Config, version_id: str, question: str, *, retries: int = 3) -
                 "Authorization": f"Bearer {token}",
                 "apikey": cfg.anon_key,
                 "content-type": "application/json",
-            }, json={"versionId": version_id, "question": question}, timeout=240)
+            }, json={"versionId": version_id, "question": question, "sessionId": sid}, timeout=240)
             if r.status_code == 429:
                 time.sleep(min(2 ** attempt * 10, 60))
                 continue

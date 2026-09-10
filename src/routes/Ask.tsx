@@ -1,7 +1,7 @@
 import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { AnswerCard } from '../components/AnswerCard'
-import { ask, type AskVersion, getAskVersion } from '../lib/api'
+import { ask, type AskVersion, getAskVersion, getSession, newSessionId } from '../lib/api'
 import type { AnswerResult } from '../lib/schema'
 
 // pdf.js is heavy — only load the slide-over (and its worker) when a citation is opened.
@@ -9,19 +9,21 @@ const SourceSlideOver = lazy(() =>
   import('../components/SourceSlideOver').then((m) => ({ default: m.SourceSlideOver })),
 )
 
+type TurnAnswer = Pick<AnswerResult, 'answer' | 'citations' | 'abstained'>
 type Turn = {
   id: number
   question: string
   pending: boolean
-  result?: AnswerResult
+  result?: TurnAnswer
   error?: string
 }
 
 // Reading-first Ask screen (Main artboard). One version per session (route param); the
-// header is a non-interactive lock. Each answer is stamped with the version that produced it.
+// header is a non-interactive lock. The conversation id lives in ?s= so a reload rehydrates
+// the thread; "New chat" starts a fresh ?s=.
 export function Ask() {
   const { versionId = '' } = useParams()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [version, setVersion] = useState<AskVersion | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [turns, setTurns] = useState<Turn[]>([])
@@ -31,23 +33,72 @@ export function Ask() {
   const nextId = useRef(1)
   const endRef = useRef<HTMLDivElement>(null)
 
+  const sessionId = searchParams.get('s') ?? ''
+  const hydratedFor = useRef<string | null>(null)
+
   useEffect(() => {
     getAskVersion(versionId).then(setVersion).catch((e) => setLoadErr(String(e.message ?? e)))
   }, [versionId])
+
+  // Ensure a session id in the URL; rehydrate its turns once.
+  useEffect(() => {
+    if (!sessionId) {
+      setSearchParams(
+        (p) => {
+          p.set('s', newSessionId())
+          return p
+        },
+        { replace: true },
+      )
+      return
+    }
+    if (hydratedFor.current === sessionId) return
+    hydratedFor.current = sessionId
+    getSession(sessionId)
+      .then((entries) => {
+        if (entries.length === 0) return
+        setTurns(
+          entries.map((e) => ({
+            id: nextId.current++,
+            question: e.question,
+            pending: false,
+            result: { answer: e.answer, citations: e.citations, abstained: e.abstained },
+          })),
+        )
+      })
+      .catch(() => {
+        /* a bad ?s= just starts an empty thread */
+      })
+  }, [sessionId, setSearchParams])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [turns])
 
+  function newChat() {
+    hydratedFor.current = null
+    setTurns([])
+    nextId.current = 1
+    setDraft('')
+    setSearchParams(
+      (p) => {
+        p.set('s', newSessionId())
+        p.delete('q')
+        return p
+      },
+      { replace: true },
+    )
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault()
     const q = draft.trim()
-    if (!q || !version) return
+    if (!q || !version || !sessionId) return
     const id = nextId.current++
     setTurns((t) => [...t, { id, question: q, pending: true }])
     setDraft('')
     try {
-      const result = await ask(versionId, q)
+      const result = await ask(versionId, q, sessionId)
       setTurns((t) => t.map((x) => (x.id === id ? { ...x, pending: false, result } : x)))
     } catch (err) {
       setTurns((t) =>
@@ -90,6 +141,11 @@ export function Ask() {
             <span className="l-sub">{meta}</span>
           </span>
         </span>
+        {turns.length > 0 && (
+          <button type="button" className="link ask-newchat" onClick={newChat}>
+            + New chat
+          </button>
+        )}
         <Link to="/" className="ask-back">
           ← Manuals
         </Link>

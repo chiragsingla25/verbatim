@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
   if (userErr || !userData.user) return json(401, { error: 'invalid token' })
   const userId = userData.user.id
 
-  let body: { versionId?: unknown; question?: unknown }
+  let body: { versionId?: unknown; question?: unknown; sessionId?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -47,8 +47,12 @@ Deno.serve(async (req) => {
   }
   const versionId = body.versionId
   const question = body.question
+  const sessionId = body.sessionId
   if (typeof versionId !== 'string' || !UUID_RE.test(versionId)) {
     return json(400, { error: 'versionId must be a uuid' })
+  }
+  if (typeof sessionId !== 'string' || !UUID_RE.test(sessionId)) {
+    return json(400, { error: 'sessionId must be a uuid' })
   }
   if (typeof question !== 'string' || question.trim().length === 0) {
     return json(400, { error: 'question is required' })
@@ -58,9 +62,18 @@ Deno.serve(async (req) => {
 
   try {
     const result = await ask(
-      { versionId, question },
+      { versionId, question, sessionId },
       {
         embed: (text) => model.run(text, { mean_pool: true, normalize: true }),
+        nextTurn: async (sid, vid, title) => {
+          const { data, error } = await supabase.rpc('chat_session_next_turn', {
+            p_session_id: sid,
+            p_version_id: vid,
+            p_title: title,
+          })
+          if (error) throw new Error(`chat_session_next_turn: ${error.message}`)
+          return Number(data)
+        },
         matchChunks: async (vid, embedding, k): Promise<RetrievedChunk[]> => {
           const { data, error } = await supabase.rpc('match_chunks', {
             p_version_id: vid,

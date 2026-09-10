@@ -5,6 +5,7 @@ import { ANSWER_SYSTEM } from '../_shared/prompt.ts'
 import { ask, type AskDeps, type QueryLogRow } from './pipeline.ts'
 
 const VID = '4325b634-805c-4097-b757-22aed89f13bf'
+const SID = '11111111-2222-4333-8444-555555555555'
 
 function chunk(id: string, page = 1, content = 'the PSS is scored by summing items') {
   return { chunkId: id, page, section: null, content, tableRef: null, score: 0.9 }
@@ -33,6 +34,7 @@ function makeDeps(o: Overrides = {}) {
       logged.push(row)
       return Promise.resolve()
     },
+    nextTurn: () => Promise.resolve(1),
     now: () => 1000,
     ...o,
   }
@@ -41,7 +43,7 @@ function makeDeps(o: Overrides = {}) {
 
 Deno.test('empty question -> abstain, still logs', async () => {
   const { deps, logged } = makeDeps()
-  const r = await ask({ versionId: VID, question: '   ' }, deps)
+  const r = await ask({ versionId: VID, sessionId: SID, question: '   ' }, deps)
   assertEquals(r.abstained, true)
   assertEquals(r.answer, ABSTAIN_MESSAGE)
   assertEquals(r.citations, [])
@@ -51,14 +53,14 @@ Deno.test('empty question -> abstain, still logs', async () => {
 
 Deno.test('no retrieved chunks -> abstain', async () => {
   const { deps, logged } = makeDeps({ hits: [] })
-  const r = await ask({ versionId: VID, question: 'how is it scored?' }, deps)
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'how is it scored?' }, deps)
   assertEquals(r.abstained, true)
   assertEquals(logged[0].retrieved, [])
 })
 
 Deno.test('happy path -> cited answer, abstained false, logged', async () => {
   const { deps, logged } = makeDeps()
-  const r = await ask({ versionId: VID, question: 'how is the PSS scored?' }, deps)
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'how is the PSS scored?' }, deps)
   assertEquals(r.abstained, false)
   assertEquals(r.citations.length, 1)
   assertEquals(r.citations[0].chunkId, 'c1')
@@ -72,7 +74,7 @@ Deno.test('model abstains in the draft -> abstain', async () => {
   const { deps } = makeDeps({
     answerJson: `{"answer":"${ABSTAIN_MESSAGE}","citations":[],"abstained":true}`,
   })
-  const r = await ask({ versionId: VID, question: 'unrelated?' }, deps)
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'unrelated?' }, deps)
   assertEquals(r.abstained, true)
 })
 
@@ -81,13 +83,13 @@ Deno.test('draft cites only unknown chunkIds -> abstain (no real support)', asyn
     answerJson:
       '{"answer":"x","citations":[{"chunkId":"ghost","page":1,"quote":"y"}],"abstained":false}',
   })
-  const r = await ask({ versionId: VID, question: 'q' }, deps)
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'q' }, deps)
   assertEquals(r.abstained, true)
 })
 
 Deno.test('verify unparseable -> abstain (do not ship unverified)', async () => {
   const { deps } = makeDeps({ verifyJson: 'the model rambled with no json' })
-  const r = await ask({ versionId: VID, question: 'q' }, deps)
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'q' }, deps)
   assertEquals(r.abstained, true)
 })
 
@@ -98,7 +100,7 @@ Deno.test('partial support -> revisedAnswer kept, citations filtered to survivin
     verifyJson:
       '{"supported":false,"unsupportedClaims":["B is 9"],"revisedAnswer":"A is 5."}',
   })
-  const r = await ask({ versionId: VID, question: 'q' }, deps)
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'q' }, deps)
   assertEquals(r.abstained, false)
   assertEquals(r.answer, 'A is 5.')
   assertEquals(r.citations.map((c) => c.chunkId), ['c1'])
@@ -109,7 +111,7 @@ Deno.test('revised answer collapses to abstention -> abstain', async () => {
   const { deps } = makeDeps({
     verifyJson: `{"supported":false,"unsupportedClaims":["everything"],"revisedAnswer":"${ABSTAIN_MESSAGE}"}`,
   })
-  const r = await ask({ versionId: VID, question: 'q' }, deps)
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'q' }, deps)
   assertEquals(r.abstained, true)
 })
 
@@ -117,7 +119,7 @@ Deno.test('a query_log failure does not fail the answer', async () => {
   const { deps } = makeDeps({
     logQuery: () => Promise.reject(new Error('db down')),
   })
-  const r = await ask({ versionId: VID, question: 'how is the PSS scored?' }, deps)
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'how is the PSS scored?' }, deps)
   assertEquals(r.abstained, false)
   assertEquals(r.citations.length, 1)
 })
@@ -139,7 +141,7 @@ Deno.test('one retry on non-JSON draft, then succeeds', async () => {
       )
     },
   })
-  const r = await ask({ versionId: VID, question: 'q' }, deps)
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'q' }, deps)
   assertEquals(calls, 2)
   assertEquals(r.abstained, false)
 })

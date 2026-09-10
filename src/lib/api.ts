@@ -49,7 +49,16 @@ export async function getAskVersion(versionId: string): Promise<AskVersion> {
 }
 
 // POST { versionId, question } to the /ask Edge Function with the caller's JWT.
-export async function ask(versionId: string, question: string): Promise<AnswerResult> {
+// A fresh conversation id. crypto.randomUUID is available in every browser we target.
+export function newSessionId(): string {
+  return crypto.randomUUID()
+}
+
+export async function ask(
+  versionId: string,
+  question: string,
+  sessionId: string,
+): Promise<AnswerResult> {
   const { data: sess } = await supabase.auth.getSession()
   const token = sess.session?.access_token
   if (!token) throw new Error('Please sign in again.')
@@ -63,7 +72,7 @@ export async function ask(versionId: string, question: string): Promise<AnswerRe
         apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ versionId, question }),
+      body: JSON.stringify({ versionId, question, sessionId }),
       signal: AbortSignal.timeout(130_000),
     })
   } catch (e) {
@@ -156,7 +165,7 @@ export type LibraryVersion = {
 // questions. The row → HistoryEntry transform (+ its types) lives in ./history so it can
 // be unit-tested without the supabase client.
 const HISTORY_SELECT =
-  'id, question, answer, abstained, citations, version_id, at, manual_versions(title, status, instrument:instruments(name))'
+  'id, question, answer, abstained, citations, version_id, session_id, turn, at, manual_versions(title, status, instrument:instruments(name))'
 
 async function currentUserId(): Promise<string> {
   const { data: sess } = await supabase.auth.getSession()
@@ -183,6 +192,19 @@ export async function listMyHistory(
     q = q.or(`at.lt.${opts.before.at},and(at.eq.${opts.before.at},id.lt.${opts.before.id})`)
   }
   const { data, error } = await q
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as unknown as RawHistoryRow[]).map(toHistoryEntry)
+}
+
+// All turns of one conversation, oldest first — for rehydrating the Ask thread on reload
+// / resume. No LLM call: the stored AnswerResult is re-rendered.
+export async function getSession(sessionId: string): Promise<HistoryEntry[]> {
+  const { data, error } = await supabase
+    .from('query_log')
+    .select(HISTORY_SELECT)
+    .eq('user_id', await currentUserId())
+    .eq('session_id', sessionId)
+    .order('turn', { ascending: true })
   if (error) throw new Error(error.message)
   return ((data ?? []) as unknown as RawHistoryRow[]).map(toHistoryEntry)
 }
