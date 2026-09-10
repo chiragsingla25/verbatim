@@ -3,35 +3,37 @@ import { Link, useNavigate } from 'react-router-dom'
 import { AuthShell } from '../components/AuthShell'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
+import { useSlowFlag } from '../lib/useSlowFlag'
 
-// Landing page for the recovery link. supabase-js (detectSessionInUrl) parses the
-// #access_token=…&type=recovery hash and fires onAuthStateChange('PASSWORD_RECOVERY').
-// Once we have that (or any session from the parsed hash) we show the set-password form;
-// updateUser keeps the session, so a successful reset lands straight in the app.
+// Captured at module load — before supabase-js's detectSessionInUrl strips the hash — so we
+// can tell a real recovery landing from a signed-in user who just wandered onto this route.
+const HAD_RECOVERY_HASH =
+  typeof window !== 'undefined' &&
+  (window.location.hash.includes('type=recovery') || window.location.hash.includes('access_token'))
+
+// Landing page for the recovery link. supabase-js parses the #…&type=recovery hash and fires
+// onAuthStateChange('PASSWORD_RECOVERY'); updateUser keeps the session, so a successful reset
+// lands straight in the app.
 export function ResetPassword() {
   const { session } = useAuth()
   const navigate = useNavigate()
   const [recovered, setRecovered] = useState(false)
-  const [slow, setSlow] = useState(false)
+  const slow = useSlowFlag(4000)
   const [pw, setPw] = useState('')
   const [confirm, setConfirm] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // The recovery link's hash yields a PASSWORD_RECOVERY event (detectSessionInUrl). If it
-    // fired before mount, AuthProvider already holds the session — hence the `|| session`.
     const { data } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') setRecovered(true)
     })
-    const t = setTimeout(() => setSlow(true), 4000)
-    return () => {
-      data.subscription.unsubscribe()
-      clearTimeout(t)
-    }
+    return () => data.subscription.unsubscribe()
   }, [])
 
-  const ready = recovered || !!session
+  // Show the form only when we have a session that arrived via a recovery link — not for a
+  // user who is merely already signed in.
+  const ready = recovered || (!!session && HAD_RECOVERY_HASH)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()

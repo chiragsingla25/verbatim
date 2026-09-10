@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AuthShell } from '../components/AuthShell'
+import { CheckYourEmail } from '../components/CheckYourEmail'
 import { supabase } from '../lib/supabase'
 
 // Self-serve signup — anyone becomes a `student` (the handle_new_user trigger sets the
@@ -26,16 +27,10 @@ export function SignUp() {
 
   if (sent) {
     return (
-      <AuthShell active="signup">
-        <h2>Check your email</h2>
-        <div className="msg ok">
-          We sent a confirmation link to <strong>{email}</strong>. Open it to finish creating your
-          account, then sign in.
-        </div>
-        <p className="af-foot">
-          <Link to="/signin">Back to sign in</Link>
-        </p>
-      </AuthShell>
+      <CheckYourEmail active="signup">
+        We sent a confirmation link to <strong>{email}</strong>. Open it to finish creating your
+        account, then sign in.
+      </CheckYourEmail>
     )
   }
 
