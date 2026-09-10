@@ -1,25 +1,32 @@
-# Spec addendum — Verbatim "accuracy MVP": document facts + hybrid retrieval
+# Spec addendum — Verbatim "accuracy MVP": document facts block
 
 Build contract for app-developer, extending v1 / v1.1 / v1.1.1 / v1.1.2 / v1.2 (all frozen
 build records). Same stack and deployment — Vite + React SPA on GitHub Pages, Supabase
 Postgres + pgvector + Auth + Storage + Edge Functions, OpenRouter free model, $0 / all-OSS.
 
-**This is a deliberate evolution of the core `/ask` retrieval design.** Two false-"not found"
-classes are fixed: **metadata questions** ("how many pages / what year / who published")
-answered from a deterministic catalog **facts block**, and **paraphrased factual questions**
-("what labels are used for the response options?" against a bare `0 = Never … 4 = Very Often`
-row) answered by **hybrid dense + lexical retrieval** (RRF). Neither loosens the grounding
-guarantee — every grounded answer still carries ≥ 1 citation to something retrieved *this
-turn*, or abstains. The architecture change is spelled out in *Architecture change* below and
-mirrored into `CLAUDE.md` in Phase 3.
+**This closes one false-"not found" class: metadata questions** ("how many pages / what year /
+who published / which instrument is this") — answerable from `manual_versions` but invisible
+to `/ask` today — are answered from a deterministic catalog **facts block**. It does not
+loosen the grounding guarantee: a grounded answer still carries ≥ 1 citation to something in
+*this turn's* context (now a retrieved chunk **or** the `__facts__` block), or abstains.
 
-Delivery model: single generalist developer + a fresh-context `/code-review` at each phase
-boundary. Phases 2–3 touch the security boundary (`match_chunks`) and the accuracy boundary
-(answer / verify prompts) — the eval suite is the release gate.
+> **Scope was cut during Build (2026-09-11).** The addendum originally also carried a
+> **hybrid dense + lexical retrieval** phase (C2 — a `match_chunks_hybrid` RPC fusing pgvector
+> `<=>` with Postgres `tsvector` via RRF). It was **dropped**: (a) the failing cases it
+> targeted (`pss-response-scale`, `pss-reverse-items`) turned out to be *answer-step*
+> failures, not retrieval — the PSS corpus is 8 chunks, fewer than `k = 12`, so every chunk
+> is already in context; (b) there is no eval evidence that plain pgvector top-k
+> under-retrieves on the larger manuals; (c) the RRF SQL was disproportionate complexity for
+> an unproven need. Hybrid retrieval is now a `docs/backlog.md` item, gated on an eval
+> showing dense-only actually misses chunks. See *Phase 3 (dropped)* and *Deviations*.
+
+Delivery model: single generalist developer + a fresh-context `/code-review` at the phase
+boundary. Phase 2 touches the accuracy boundary (answer / verify prompts) — the eval suite is
+the release gate.
 
 Ship model: **Phase 1 ships on its own, immediately** (it un-blocks the eval suite — nothing
-downstream can be measured until it lands). **Phases 2–3 build sequentially, then one
-whole-addendum release-qa Verify + Ship.** Not shipped phase-by-phase after Phase 1.
+downstream can be measured until it lands). **Phase 2 builds, then one release-qa Verify +
+Ship.**
 
 ---
 
@@ -36,10 +43,8 @@ whole-addendum release-qa Verify + Ship.** Not shipped phase-by-phase after Phas
    synthetic chunk `__facts__`. A metadata claim cites `__facts__`; the grounding invariant
    holds literally. A one-line upload-title guard rides along so the block isn't built from
    garbage.
-3. **Hybrid retrieval (C2).** A new `match_chunks_hybrid` RPC — `security invoker`, same
-   version filter — fuses the pgvector `<=>` ranking with a Postgres `tsvector` /
-   `websearch_to_tsquery` ranking via Reciprocal Rank Fusion (k = 60). No re-embed, no
-   re-ingest (a `generated` column backfills itself). Old `match_chunks` kept for rollback.
+3. ~~**Hybrid retrieval (C2).**~~ **Dropped during Build** — see the note above and
+   *Phase 3 (dropped)*. Moved to `docs/backlog.md`.
 
 ## Out of scope (stay deferred — all in `docs/backlog.md` under "v1.2 post-ship audit")
 
@@ -70,47 +75,38 @@ attestation (only a blank/1-char title guard is in scope).
     always-on, so it changes the single-turn answer / verify prompt on purpose. The full eval
     is the gate. **Fallback if abstention regresses:** make the block conditional on a
     lightweight metadata-ish signal in the question, or revert it.
-- **Hybrid retrieval placement:** a **new** `match_chunks_hybrid` RPC; `match_chunks` is left
-  in place for rollback and A/B. The pipeline switches to the hybrid RPC and passes the raw
-  query text alongside the embedding (same string that gets embedded — the condensed
-  standalone query when there's history, else the raw question).
+- ~~**Hybrid retrieval placement**~~ — dropped during Build (see the scope note up top).
+  Retrieval is unchanged: the pgvector-only `match_chunks` RPC.
 - **B11 feedback:** **split out** of this addendum. This spec stays purely corpus + CI +
-  retrieval.
+  the facts block.
 
-## Architecture change (mirror into CLAUDE.md + .claude/rules/src.md in Phase 3)
+## Architecture change (mirror into CLAUDE.md + .claude/rules/src.md in Phase 2)
 
-- **The retrieval entry point becomes `match_chunks_hybrid`** — dense (`embedding <=>
-  p_query_embedding`) + lexical (`tsv @@ websearch_to_tsquery('english', p_query_text)`,
-  ranked by `ts_rank_cd`), fused by **Reciprocal Rank Fusion**, `score = Σ 1/(60 + rank_i)`
-  over the two arms. Still **one retrieval call, `security invoker`, filtered to the one
-  locked `version_id`** — a bug must not leak another version's chunks (dedicated
-  `cross-version-leak` eval stays at zero). **RRF is not a reranker** — no model, no
-  PyTorch — so "no reranker in v1" still holds.
-- **A deterministic document-facts source joins retrieved chunks** as a citable, non-web,
-  version-scoped input (`__facts__`). It is a SQL join over `manual_versions` +
-  `document_chunks`, **not a second retriever**. `verify` gains `__facts__` in its context so
-  a metadata claim is checkable rather than stripped.
+- **Retrieval is unchanged** — one `match_chunks` call (pgvector `<=>` top-k, `security
+  invoker`, filtered to the one locked `version_id`). No hybrid, no lexical arm, no reranker.
+- **A deterministic document-facts source joins the retrieved chunks** as a citable, non-web,
+  version-scoped input (`__facts__`). It is a `version_facts()` RPC over `manual_versions` +
+  `document_chunks`, **not a retriever**. It reaches the answer step as a synthetic chunk
+  (`chunkId = __facts__`, `page 0`), and `verify` gets it in context too, so a metadata claim
+  is checkable rather than stripped.
 - **Three response kinds are unchanged** (`grounded` / `abstained` / `meta`). The grounding
-  guarantee is unchanged: every `grounded` answer cites ≥ 1 item in *this turn's* retrieved
-  set (now = hybrid chunks **or** `__facts__`), or the turn abstains. Never the open web.
-- The pgvector-only `match_chunks` RPC is retained but no longer on the `/ask` path.
+  guarantee is unchanged: every `grounded` answer cites ≥ 1 item in *this turn's* context —
+  a retrieved chunk **or** `__facts__` — or the turn abstains. Never the open web.
 
 ## Prior art & scope rationale
-
-Hybrid **pgvector + `tsvector` + RRF** is the standard, zero-infrastructure fix for
-"the exact token the embedding missed" (error codes, SKUs — here, `0 = Never` anchor rows and
-reverse-scored item numbers). Field reports put pure-vector retrieval precision ≈ 62 % and
-dense + lexical + RRF ≈ 84 %, RRF constant k = 60, cosine distance and `ts_rank_cd` never
-normalised against each other (rank-only fusion). It is all SQL — no new service, no change
-to the $0 / OSS posture.
-Sources: *Hybrid Search in Postgres with pgvector — field notes on HNSW, tsvector, RRF*
-(devya.dev); *Hybrid Search in PostgreSQL: The Missing Manual* (ParadeDB).
 
 The **facts block** is the minimal slice of multi-representation indexing — LlamaIndex's
 `DocumentSummaryIndex` / LangChain's `MultiVectorRetriever` are the full version (an
 ingest-time summary/outline artifact per document), deferred to "ingest v2" in the backlog.
-Here we only surface what's already structured in `manual_versions`, so it needs no re-ingest
-and no LLM call.
+Here we only surface what's already structured in `manual_versions`, so it needs no re-ingest,
+no LLM call, and no new query path — a single `version_facts()` lookup alongside the existing
+`match_chunks` call.
+
+**Deliberately cut:** hybrid dense + lexical retrieval / RRF (dropped during Build — no eval
+evidence plain top-k under-retrieves on this corpus; the cases it targeted are answer-step,
+not retrieval; disproportionate SQL complexity for an unproven need); generated document
+summaries (ingest cost); reranker (cost / OSS); query-type routing / a classifier (the facts
+block is always-on).
 
 **Table-stakes this build adopts:** lexical + dense fusion; exact-metadata answers.
 **Deliberately cut:** reranker (cost / OSS), generated document summaries (ingest cost),
@@ -248,98 +244,52 @@ Phase 3.
 
 ---
 
-## Phase 3 — Hybrid retrieval (C2)
+## Phase 3 — Hybrid retrieval (C2) — DROPPED during Build (2026-09-11)
 
-**Delivers:** a chunk that holds the answer but doesn't embed near a paraphrased query still
-lands in the top-k; `pss-response-scale` / `pss-reverse-items` (and similar) become
-`grounded`.
+Built in full (commit `ada296e`: `match_chunks_hybrid` RPC, generated `tsv` column + GIN
+index, RRF k=60, pipeline switched, CLAUDE.md updated), then **reverted** (`3fcce0c`) and the
+prod objects dropped. Reasons, in order of weight:
 
-**Work**
+1. **Wrong diagnosis.** The checkpoint's targets — `pss-response-scale`, `pss-reverse-items` —
+   are *answer-step* failures, not retrieval. The PSS corpus is **8 chunks** (< `k = 12`), so
+   `match_chunks` already returns *every* chunk on every query, including the two that hold
+   the answers (`"…reversing responses … items 4, 5, 7, & 8…"`; `"0 = Never … 4 = Very Often"`).
+   Better retrieval cannot help when retrieval already returns everything.
+2. **No evidence of a retrieval gap** on the larger manuals (PHQ 22 chunks, AUDIT 61). A
+   `psycopg` probe showed the lexical arm *can* surface a plausible chunk for a token-heavy
+   AUDIT query, but no eval run showed dense-only `match_chunks` actually missing a needed
+   chunk there.
+3. **Disproportionate complexity.** The RRF SQL (two CTEs + a full outer join + an
+   OR-of-lexemes `to_tsquery` built by re-lexemising the query, because `websearch_to_tsquery`
+   AND-joins terms) is ~60 lines carrying real cognitive load, for an unproven need.
 
-- **`supabase/migrations/<ts>_hybrid_retrieval.sql`** *(new)*
-  - `alter table public.document_chunks add column tsv tsvector generated always as
-    (to_tsvector('english', content)) stored;` — a `generated` column backfills all existing
-    rows and self-maintains on insert; the ingestion writer needs no change.
-  - `create index document_chunks_tsv_gin on public.document_chunks using gin (tsv);`
-  - `create function public.match_chunks_hybrid(p_version_id uuid, p_query_embedding
-    vector(384), p_query_text text, p_k int default 12) returns table (chunk_id uuid, page
-    int, section text, content text, table_ref text, score real) language sql stable
-    security invoker set search_path = public as $$`
-    - `with dense as ( select c.id, row_number() over (order by c.embedding <=>
-      p_query_embedding) as rnk from public.document_chunks c where c.version_id =
-      p_version_id order by c.embedding <=> p_query_embedding limit greatest(p_k * 4, 40) ),`
-    - `lexical as ( select c.id, row_number() over (order by ts_rank_cd(c.tsv,
-      websearch_to_tsquery('english', p_query_text)) desc) as rnk from public.document_chunks
-      c where c.version_id = p_version_id and c.tsv @@ websearch_to_tsquery('english',
-      p_query_text) order by ts_rank_cd(...) desc limit greatest(p_k * 4, 40) ),`
-    - `fused as ( select coalesce(d.id, l.id) as id, coalesce(1.0/(60 + d.rnk), 0) +
-      coalesce(1.0/(60 + l.rnk), 0) as rrf from dense d full outer join lexical l on d.id =
-      l.id )`
-    - `select c.id, c.page, c.section, c.content, c.table_ref, f.rrf::real from fused f join
-      public.document_chunks c on c.id = f.id order by f.rrf desc limit greatest(coalesce(
-      p_k, 12), 1);`
-  - Both CTEs keep `where c.version_id = p_version_id`; `security invoker` keeps RLS on
-    `document_chunks` in force. `revoke all … from public, anon; grant execute … to
-    authenticated`. **Leave `match_chunks` untouched.**
-- **`supabase/functions/ask/pipeline.ts`** — `AskDeps.matchChunks` signature
-  `(versionId, embedding, queryText, k)`. Call site passes `retrievalQuery` (the condensed
-  standalone query when `hasHistory`, else `question`) as `queryText`. `RETRIEVE_K` stays 12.
-  The returned `score` is now an RRF score — the pipeline only orders / logs by it (no
-  threshold exists), so no other change. Note in a comment that `query_log.retrieved[].score`
-  is now RRF, not cosine.
-- **`supabase/functions/ask/index.ts`** — `matchChunks` impl calls `match_chunks_hybrid` with
-  `p_query_text`.
-- **`supabase/functions/ask/pipeline.test.ts`** — update the `matchChunks` mock signature;
-  add a case asserting the query text is threaded through to the dep.
-- **`CLAUDE.md` + `.claude/rules/src.md`** — update the pipeline diagram and the retrieval
-  bullet: `embed + raw query text → match_chunks_hybrid (dense <=> + tsvector RRF k=60,
-  k=12, ONE version_id, RLS security-invoker)`; add the `__facts__` deterministic source and
-  the "RRF ≠ reranker" note; keep "no reranker in v1".
-- **`evals/`** — no new dataset rows needed (Phase 2 added the metadata cases;
-  `pss-response-scale` / `pss-reverse-items` already exist and are the target). If either
-  still abstains after the migration, that is a Phase-3 checkpoint failure to investigate,
-  not a dataset edit.
-
-**Checkpoint**
-
-- Migration applied to prod. Direct probe: `match_chunks_hybrid` for "what labels are used
-  for the response options?" against PSS returns the `0 = Never  1 = Almost Never …` chunk in
-  the top-k (it is absent from the dense-only `match_chunks` top-k for that query).
-- `pss-response-scale` and `pss-reverse-items` now `grounded` with a real page citation.
-- Full `run_evals.py`: **abstention accuracy strictly above the Phase-1 baseline**;
-  cross-version-leak = 0 (the hybrid RPC must not leak — verify by reading the SQL and by the
-  live eval); conversational 6/6; RAGAS mean ≥ 0.70 and `context_precision` ≥ the pre-hybrid
-  number.
-- `websearch_to_tsquery('english', <text>)` unit-probed with punctuation, quotes, boolean
-  operators, and empty string → returns rows or none, never raises.
-- Local sweep: `pnpm lint` + `pnpm test` + `pnpm test:functions` + `pnpm build` + `deno
-  check` green.
-
-**Hard gate:** `/code-review` on the Phase-3 diff (focus: `match_chunks_hybrid` version
-isolation + `security invoker`; RRF math; the `matchChunks` signature change threaded
-correctly through the pipeline and its tests).
+**Now a `docs/backlog.md` item** ("Hybrid retrieval — gated on eval evidence"): revisit only
+if a `run_evals.py` shows plain `match_chunks` under-retrieving on a multi-chunk corpus, and
+prefer the smallest fix then (raise `k`; a minimal FTS fallback) before RRF.
 
 ---
 
-## Whole-addendum verification (hand to release-qa after Phase 3)
+## Whole-addendum verification (hand to release-qa after Phase 2)
 
-- **Grounding / isolation:** `match_chunks_hybrid` is `security invoker`, both arms filter
-  `version_id`; `cross_version_leak.py` = 0. A `__facts__` citation can only carry a claim
-  whose quote is in the deterministic facts block — it cannot launder a content claim past
-  `verify` (verify still checks content claims against real chunks).
-- **Accuracy:** full `run_evals.py` green — abstention accuracy **above** the Phase-1
-  post-restore baseline; the 2 new metadata cases `grounded`; `pss-response-scale` /
-  `pss-reverse-items` `grounded`; cross-version-leak = 0; conversational 6/6; RAGAS mean
-  ≥ 0.70.
+- **Grounding / isolation:** retrieval is unchanged (`match_chunks`, `security invoker`,
+  version-filtered); `cross_version_leak.py` = 0. `version_facts()` is `security invoker` too,
+  so a version the caller can't see yields no facts block. A `__facts__` citation can only
+  carry a claim whose quote is in the deterministic facts block — it cannot launder a content
+  claim past `verify` (verify still checks content claims against real chunks).
+- **Accuracy:** full `run_evals.py` green — abstention accuracy **≥ the Phase-1 post-restore
+  baseline**; the 2 new metadata cases (`audit-page-count`, `audit-publication-year`)
+  `grounded` citing `__facts__`; cross-version-leak = 0; conversational 6/6; RAGAS mean
+  ≥ 0.70. (`pss-response-scale` / `pss-reverse-items` remain out of scope — answer-step, see
+  Phase 3 dropped.)
 - **No pipeline-shape regression:** a first / single-turn call still produces the three
   response kinds; `meta` still skips retrieval + verify; the rolling summary / transcript
-  still never reach `verify`.
-- **Local sweep:** lint + unit + deno + `deno check` + build green. New pipeline tests for
-  the facts block and the hybrid signature.
-- **Ship:** migrations via `supabase db push --linked`; `supabase functions deploy ask`;
-  merge to `main` → `ci` (`--quick` per-PR already passed; `full-evals` runs on the main
-  push) → `deploy.yml` → Pages. `CLAUDE.md` + `.claude/rules/src.md` updated in Phase 3.
-  No new Edge Function.
+  still never reach `verify`. `getFacts` returning `null` reproduces the exact pre-facts path.
+- **Local sweep:** lint + unit + deno (37) + `deno check` + build green. New pipeline tests
+  for the facts block (4).
+- **Ship:** `version_facts` migration via `supabase db push --linked` (already applied);
+  `supabase functions deploy ask`; merge to `main` → `ci` (`--quick` per-PR; `full-evals` on
+  the main push) → `deploy.yml` → Pages. `CLAUDE.md` + `.claude/rules/src.md` updated in
+  Phase 2. No new Edge Function.
 
 ---
 
@@ -395,3 +345,26 @@ correctly through the pipeline and its tests).
   abstention ≥ baseline) is deferred with Phase 1's baseline to one batched `run_evals.py`
   after the OpenRouter daily-cap reset. `ask` is **not** redeployed to prod yet — the
   `version_facts` migration is applied but dormant until then.
+- **CLAUDE.md / `.claude/rules/src.md`** get the `__facts__` note in Phase 2 (the spec's
+  "mirror in Phase 3" line is moot — Phase 3 is gone). Retrieval wording is unchanged.
+
+### Phase 3 — Hybrid retrieval (dropped, 2026-09-11)
+
+- **Built then reverted at the user's direction** ("I just wanted a normal retrieval, the way
+  you did it is complex"). Commit `ada296e` added `match_chunks_hybrid` (dense `<=>` +
+  OR-of-lexemes `tsvector`, RRF k=60), a generated `document_chunks.tsv` column + GIN index,
+  and switched the pipeline; `3fcce0c` reverts all of it, and the dormant prod objects
+  (`match_chunks_hybrid`, `tsv` column, GIN index) + the migration-history row `20260911130000`
+  were dropped so prod == `supabase/migrations/` (latest `20260911120000`).
+- **Why it was the wrong call:** (1) the target cases (`pss-response-scale`,
+  `pss-reverse-items`) are *answer-step* failures — the PSS corpus is 8 chunks (< `k = 12`),
+  so `match_chunks` already returns every chunk, including the two holding the answers;
+  (2) no eval evidence plain top-k under-retrieves on the larger manuals; (3) ~60 lines of
+  RRF SQL (incl. re-lexemising the query because `websearch_to_tsquery` AND-joins terms) is
+  disproportionate to an unproven need.
+- **`websearch_to_tsquery` was also the wrong primitive** (AND-joins every term → a
+  natural-language question rarely `@@`-matches a terse chunk). Noted here for whoever revisits
+  the backlog item: an OR-of-lexemes `to_tsquery` is the shape to use.
+- **Now `docs/backlog.md`** — "Hybrid retrieval — gated on eval evidence": only revisit if
+  `run_evals.py` shows plain `match_chunks` missing a needed chunk on a multi-chunk corpus;
+  try raising `k` or a minimal FTS fallback before RRF.

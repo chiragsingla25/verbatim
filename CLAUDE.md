@@ -27,22 +27,31 @@ tool use). As of **v1.2** (`specs/2026-09-10-verbatim-v1.2.md`) `/ask` is multi-
 follow-up + conversation (bounded recent turns + a rolling per-session summary)
   → condense to a standalone retrieval query  (or flag it __META__)
   → embed (gte-small) → pgvector top-k (k=12, ONE version_id, RLS via match_chunks)
+  → + a deterministic __facts__ chunk: catalog metadata (pages / edition / year /
+      publisher / instrument) from version_facts() — NOT a retriever, NOT the open web
   → answer w/ structured citations (conversation is context for the question ONLY,
     never a source of a claim) OR abstain
-  → verify (2nd LLM call, chunks-only — a claim backed only by the transcript/summary
-    is UNSUPPORTED) → log to query_log (session_id, turn, kind)
+  → verify (2nd LLM call — checks claims against the retrieved chunks + __facts__ only;
+    a claim backed only by the transcript/summary is UNSUPPORTED)
+  → log to query_log (session_id, turn, kind; __facts__ excluded from `retrieved`)
 ```
 
-- **Three response kinds:** `grounded` (≥1 citation to the requested version), `abstained`
-  ("not found in this version"), or `meta` (a question about the conversation itself —
-  answered from the transcript, no citation, no manual claim, verify skipped).
+- **Three response kinds:** `grounded` (≥1 citation to a chunk in the requested version, or
+  to the `__facts__` metadata chunk), `abstained` ("not found in this version"), or `meta`
+  (a question about the conversation itself — answered from the transcript, no citation, no
+  manual claim, verify skipped).
+- **Retrieval is unchanged** — one `match_chunks` pgvector top-k call. (A hybrid dense+lexical
+  RPC was built and reverted 2026-09-11 as premature complexity; see the accuracy-mvp spec +
+  `docs/backlog.md`.) The facts block is a `version_facts()` lookup, not a second retriever.
 - A **first / single-turn** call has no conversation → byte-identical to the pre-v1.2
   pipeline (why the abstention + cross-version-leak evals stay green unchanged).
 - **No reranker** (deferred). No planner/orchestrator, no ReAct loop, no LangChain. Deferred
   features live in the spec's out-of-scope section — check it before adding anything.
 - **Version isolation is enforced by Postgres RLS**, not an application `WHERE` clause. The
-  `match_chunks` RPC is `security invoker` so it runs under the caller's JWT. A bug in the Edge
-  Function must not be able to leak another version's chunks. Dedicated eval: `cross-version-leak`.
+  `match_chunks` RPC is `security invoker` so it runs under the caller's JWT; `version_facts()`
+  (the `__facts__` source) is `security invoker` too — a version the caller can't see yields
+  no facts. A bug in the Edge Function must not be able to leak another version's chunks.
+  Dedicated eval: `cross-version-leak`.
 - **Structured output without a vendor feature:** prompt asks for JSON → `JSON.parse` → extract the
   first `{…}` → one retry → else treat as abstention. Validate with `zod`. The answer step returns
   `{ answer, citations: [{chunkId, page, quote}], abstained }`; verify returns
@@ -106,8 +115,9 @@ by reopening this phase list.
     `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL` for `ci.yml` (Phase 2 evals).
 - **Embedding model must be `gte-small` on both sides** — Supabase's built-in at query time and
   `thenlper/gte-small` at ingest. Changing it means re-embedding the whole corpus.
-- Every answer is `grounded` (≥1 citation to a chunk in the requested `versionId`),
-  `abstained: true`, or `meta` (about the conversation — no citation, no manual claim).
+- Every answer is `grounded` (≥1 citation to a chunk in the requested `versionId`, or to the
+  `__facts__` metadata chunk), `abstained: true`, or `meta` (about the conversation — no
+  citation, no manual claim).
 - New Supabase table → write its RLS policy in the same migration. RLS-on + no-policy = unreadable;
   that's the safe default, not a bug to route around with the service client.
 - **Supabase free tier pauses a project after 7 days idle.** A scheduled GitHub Action pings a

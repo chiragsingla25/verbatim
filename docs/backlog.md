@@ -132,7 +132,18 @@ polish or a heavier retrieval lift, not answer accuracy.
 - **Wedged-upload notification** — the watchdog fails a stuck job server-side, but the
   contributor only learns by revisiting the Review page. Size: S.
 
-### C — retrieval quality "ingest v2" (stretch, after the facts block + hybrid retrieval prove out)
+### Hybrid retrieval (dense + lexical / RRF) — gated on eval evidence
+
+Built during the accuracy-mvp then reverted (`ada296e` → `3fcce0c`) as premature: the cases
+it targeted (`pss-response-scale`, `pss-reverse-items`) are *answer-step* failures, not
+retrieval — the PSS corpus is 8 chunks (< `k = 12`) so `match_chunks` already returns
+everything. **Only revisit if a `run_evals.py` shows plain `match_chunks` missing a needed
+chunk on a multi-chunk manual** (PHQ 22, AUDIT 61, or a larger future corpus). Then prefer the
+smallest fix — raise `k`, or a minimal FTS fallback — before an RRF fusion. If RRF is used:
+the lexical arm needs an **OR-of-lexemes `to_tsquery`** (`websearch_/plainto_tsquery` AND-join
+every term and rarely `@@`-match a terse chunk). Size: M.
+
+### C — retrieval quality "ingest v2" (stretch, after the facts block proves out)
 
 All three share one corpus re-ingest, so they ship together or not at all:
 
