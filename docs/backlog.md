@@ -10,9 +10,12 @@ current release; the mobile-navigation bug from the re-skin is already fixed (`7
 (`specs/2026-09-10-verbatim-v1.1.2.md`); conversational `/ask` + session-grouped resumable
 "My answers" (`specs/2026-09-10-verbatim-v1.2.md`).
 
-**In progress:** an **accuracy MVP** — restore the eval corpus + gate, a document facts block,
-and hybrid (dense + lexical) retrieval — going through app-architect. Everything under
-"v1.2 post-ship audit" below is explicitly **deferred out of that cut** and unscheduled.
+**In progress:** an **accuracy MVP** — restore the eval corpus + gate + a document facts block
+(`specs/2026-09-11-verbatim-accuracy-mvp.md`; hybrid retrieval was cut mid-build). Everything
+under "v1.2 post-ship audit" and "Product review" below is deferred out of that cut.
+
+**See also `docs/product-review-2026-09.md`** — a full walkthrough + market comparison; its
+Tier 1–3 roadmap is the source of the "Product review" items below.
 
 ---
 
@@ -184,3 +187,53 @@ All three share one corpus re-ingest, so they ship together or not at all:
   stays in the test corpus.
 - The three original sample manuals were archived during admin-console testing and the eval
   manifest went stale — both are in the accuracy-MVP cut to fix.
+
+---
+
+## Product review (2026-09-10) — from `docs/product-review-2026-09.md`
+
+A full walkthrough + market comparison (vs ChatPDF / Humata / ChatDOC / NotebookLM /
+OpenEvidence / Harvey / Glean). Verbatim's edge — **version isolation, explicit abstention,
+a verify pass, $0 / OSS** — is real and rare. These are the gaps the market has closed that
+fit Verbatim's "look up a fact in a manual, safely" mission. Grouped by tier; **none change
+the architecture** (RAG, single retriever, deterministic).
+
+### Tier 1 — accuracy & trust
+
+- **Render tables in answers** — norm / cutoff / RCI / SEM tables *are* the content
+  clinicians look up. Chunks keep tables whole (`document_chunks.table_ref`), but the answer
+  step flattens them to prose. When a cited chunk is a table, carry it through as Markdown
+  and render a real table in the answer card. Highest content ROI. Size: M.
+- **Per-answer feedback + correction** (= B11, promoted) — 👍/👎 + optional "what was wrong",
+  a `feedback` table (RLS self-insert, self/admin read, no update/delete like `query_log`),
+  and a weekly job turning 👎 into candidate golden cases. The instrument for *earning* the
+  accuracy claim. Its own small spec, right after the accuracy-mvp. Size: M.
+- **Citation viewer v2** — `SourceSlideOver` shows one frozen page. Add full-doc scroll,
+  zoom, prev/next, and a "search this manual" box (plain text match over the version's
+  chunks — no LLM). Size: M.
+
+### Tier 2 — usefulness (candidate "v1.3 — usefulness" spec, via app-architect after the accuracy-mvp)
+
+- **Streaming** the answer token-by-token — the free model is 5–15 s and the spinner reads
+  as broken. No accuracy cost. Size: M (Edge Function must stream; `verify` still runs before
+  the final answer is committed, so stream the draft then reconcile — design in the spec).
+- **Starter questions** per manual on the Ask empty state — 3–5 authored per instrument, or
+  derived from the outline once ingest-v2 lands. Size: S.
+- **Export a cited answer** — "Copy with citation" per answer (answer text + `Manual · p.N` +
+  the quote); optionally a read-only shareable answer link. Size: S–M.
+- **Cross-edition compare** — a two-pane read-only view, each pane a normal locked Ask, no
+  blending and no new retrieval path. The highest-value latent feature for the "editions that
+  quietly disagree" problem in the proposal. Size: M.
+- **Manual detail page** — a landing page per version (instrument, edition, publisher, page
+  count, section outline, "ask about this" CTA) instead of jumping straight into Ask. Size: S.
+
+### Tier 3 — polish & retention
+
+- **PWA** — manifest + a service worker caching the app shell; installable icon. Size: S.
+- **Admin metrics** — question volume, abstention rate, top manuals, corpus size vs the
+  500 MB free-tier ceiling. Size: M.
+- **Onboarding / first-run** — a one-screen "how Verbatim works" (version lock, abstention,
+  citations). Size: S.
+- **Keyboard shortcuts** — `/` to focus the composer, `Esc` to close the slide-over. Size: XS.
+- **Usage indicator** — "N questions today" for the user. Size: XS.
+- **Edit a manual's metadata after publish** (Admin) — currently frozen at upload. Size: S.
