@@ -89,7 +89,9 @@ export function SourceSlideOver({
           </button>
         </header>
 
-        <blockquote className="slideover-quote">“{quote}”</blockquote>
+        {quote.trim().length > 0 && (
+          <blockquote className="slideover-quote">“{quote}”</blockquote>
+        )}
 
         <div className="slideover-page" ref={holderRef}>
           {status === 'loading' && <p className="slideover-note">Rendering page…</p>}

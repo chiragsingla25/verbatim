@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { type CitedChunk, citedChunkContent } from '../lib/api'
+import { copyText } from '../lib/clipboard'
 import { type AnswerResult, type Citation, FACTS_CHUNK_ID } from '../lib/schema'
 import { parseMarkdownTable } from '../lib/tables'
 
@@ -100,25 +101,7 @@ function GroundedAnswer({
     const text = factsCited
       ? `${result.answer}\n\nSources:\n${src}\n— ${manual} (document metadata)`
       : `${result.answer}\n\nSources:\n${src}`
-    let ok = false
-    try {
-      await navigator.clipboard.writeText(text)
-      ok = true
-    } catch {
-      try {
-        const ta = document.createElement('textarea')
-        ta.value = text
-        ta.style.position = 'fixed'
-        ta.style.opacity = '0'
-        document.body.appendChild(ta)
-        ta.select()
-        ok = document.execCommand('copy')
-        ta.remove()
-      } catch {
-        ok = false
-      }
-    }
-    setCopied(ok ? 'ok' : 'hint')
+    setCopied((await copyText(text)) ? 'ok' : 'hint')
     setTimeout(() => setCopied('idle'), 2500)
   }
 

@@ -10,6 +10,7 @@ import {
   renameSession,
   type SessionSummary,
 } from '../lib/api'
+import { copyText } from '../lib/clipboard'
 import { errMessage, relDate } from '../lib/format'
 
 const SourceSlideOver = lazy(() =>
@@ -60,25 +61,7 @@ export function History() {
       .map((h) => `Q: ${h.question}\nA: ${h.abstained ? 'Not found in this version.' : h.answer}`)
       .join('\n\n')
     const text = `${s.manualLabel} — ${s.title}\n\n${body}\n`
-    let ok = false
-    try {
-      await navigator.clipboard.writeText(text)
-      ok = true
-    } catch {
-      // Legacy fallback for older / permission-restricted browsers.
-      try {
-        const ta = document.createElement('textarea')
-        ta.value = text
-        ta.style.position = 'fixed'
-        ta.style.opacity = '0'
-        document.body.appendChild(ta)
-        ta.select()
-        ok = document.execCommand('copy')
-        ta.remove()
-      } catch {
-        ok = false
-      }
-    }
+    const ok = await copyText(text)
     setCopyMsg({ id: s.sessionId, text: ok ? 'Copied' : 'Press ⌘/Ctrl-C to copy' })
     setTimeout(() => setCopyMsg((m) => (m?.id === s.sessionId ? null : m)), 2500)
   }
