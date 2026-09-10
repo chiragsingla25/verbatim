@@ -4,11 +4,15 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App.tsx'
 import { AuthProvider } from './lib/auth.tsx'
+import { startVersionCheck } from './lib/version-check'
 import './index.css'
 
 // basename keeps the router in sync with vite's base (/verbatim/) so links work both
 // on localhost and on GitHub Pages.
 const basename = import.meta.env.BASE_URL
+
+// Reload a stale tab when a newer build is deployed (no-op in dev).
+startVersionCheck()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
