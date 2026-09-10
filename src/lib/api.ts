@@ -24,8 +24,9 @@ export type AskVersion = {
   edition: string | null
   year: number | null
   publisher: string | null
+  page_count?: number | null
   status: string
-  instrument: { name: string } | null
+  instrument: { name: string; slug: string } | null
   // The newer version that supersedes this one, if the caller can see it.
   supersededBy: VersionRef | null
 }
@@ -35,7 +36,9 @@ export async function getAskVersion(versionId: string): Promise<AskVersion> {
   const [{ data, error }, { data: newer }] = await Promise.all([
     supabase
       .from('manual_versions')
-      .select('id, title, edition, year, publisher, status, instrument:instruments(name)')
+      .select(
+        'id, title, edition, year, publisher, page_count, status, instrument:instruments(name, slug)',
+      )
       .eq('id', versionId)
       .maybeSingle(),
     supabase
@@ -125,6 +128,40 @@ export async function manualText(versionId: string): Promise<ManualTextRow[]> {
     content: r.content ?? '',
     section: r.section ?? null,
   }))
+}
+
+// A version's section outline for the manual detail page — distinct `section` labels in
+// page order, derived from the chunk rows (source display only, JWT-scoped, RLS-gated).
+export type OutlineItem = { section: string; page: number }
+export async function manualOutline(versionId: string): Promise<OutlineItem[]> {
+  const rows = await manualText(versionId)
+  const seen = new Set<string>()
+  const out: OutlineItem[] = []
+  for (const r of rows) {
+    let s = (r.section ?? '').replace(/\s+/g, ' ').trim()
+    // Docling sometimes doubles a heading ("Abstract Abstract"); collapse an exact
+    // immediate repeat of the whole label or its first half.
+    s = s.replace(/^(.+?)\s+\1$/i, '$1')
+    if (s.length > 90) s = s.slice(0, 88).trimEnd() + '…'
+    const key = s.toLowerCase()
+    if (!s || seen.has(key)) continue
+    seen.add(key)
+    out.push({ section: s, page: r.page })
+  }
+  return out
+}
+
+// How many questions the caller has asked since local midnight (a quiet usage cue).
+export async function myQuestionsToday(): Promise<number> {
+  const since = new Date()
+  since.setHours(0, 0, 0, 0)
+  const { count, error } = await supabase
+    .from('query_log')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', await currentUserId())
+    .gte('at', since.toISOString())
+  if (error) throw new Error(error.message)
+  return count ?? 0
 }
 
 // Short-TTL signed URL to a version's source PDF (RLS: readable for an active version).

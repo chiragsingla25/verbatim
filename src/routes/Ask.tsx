@@ -3,7 +3,9 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { AnswerCard } from '../components/AnswerCard'
 import { AnswerProgress } from '../components/AnswerProgress'
 import { ask, type AskVersion, getAskVersion, getSession, newSessionId } from '../lib/api'
+import { instrumentBadge } from '../lib/instrument'
 import type { AnswerResult } from '../lib/schema'
+import { startersFor } from '../lib/starters'
 
 // pdf.js is heavy — only load the slide-over (and its worker) when a citation is opened.
 const SourceSlideOver = lazy(() =>
@@ -35,6 +37,7 @@ export function Ask() {
   const [cite, setCite] = useState<{ page: number; quote: string } | null>(null)
   const nextId = useRef(1)
   const endRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
 
   const sessionId = searchParams.get('s') ?? ''
   const hydratedFor = useRef<string | null>(null)
@@ -85,6 +88,19 @@ export function Ask() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [turns])
+
+  // "/" focuses the composer (unless the user is already typing in a field).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      e.preventDefault()
+      composerRef.current?.focus()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   function newChat() {
     hydratedFor.current = null
@@ -142,13 +158,17 @@ export function Ask() {
   if (!version) return <div className="page-body">Loading…</div>
 
   const meta = [version.edition, version.year, 'version locked'].filter(Boolean).join(' · ')
+  const badge = instrumentBadge(version.instrument?.name)
 
   return (
     <div className="ask-main">
       <header className="ask-lock">
         <span className="ask-lock-label">ANSWERING FROM</span>
         <span className="ask-lock-chip">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <span className="inst-badge sm" style={{ background: badge.tint }} aria-hidden="true">
+            {badge.initials}
+          </span>
+          <svg className="ask-lock-pad" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="11" width="18" height="11" rx="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
@@ -177,12 +197,29 @@ export function Ask() {
       <div className="ask-thread">
         <div className="center-col">
           {turns.length === 0 && (
-            <p className="empty">
-              Ask a question about <strong>{version.instrument?.name}</strong>.
-              <br />
-              Answers come only from this version, with page citations — or “not found in this
-              version”.
-            </p>
+            <div className="ask-welcome">
+              <p className="empty">
+                Ask a question about <strong>{version.instrument?.name}</strong>.
+                <br />
+                Answers come only from this version, with page citations — or “not found in
+                this version”.
+              </p>
+              <div className="ask-starters">
+                {startersFor(version.instrument?.slug).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className="ask-starter"
+                    onClick={() => {
+                      setDraft(s)
+                      composerRef.current?.focus()
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
 
           {turns.map((t) => (
@@ -214,6 +251,7 @@ export function Ask() {
         <div className="composer-inner">
           <div className="composer-box">
             <textarea
+              ref={composerRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {

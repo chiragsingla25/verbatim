@@ -998,6 +998,19 @@ a.lib-row:hover {
   flex-shrink: 0;
   color: var(--om-accent-primary);
 }
+/* the padlock "clicks shut" once when the locked header mounts */
+.ask-lock-chip .ask-lock-pad {
+  animation: lock-shut 0.5s ease both;
+  transform-origin: 50% 40%;
+}
+@keyframes lock-shut {
+  from {
+    transform: rotate(-18deg) translateY(-1px);
+  }
+  70% {
+    transform: rotate(4deg);
+  }
+}
 .ask-lock-chip .l-lines {
   display: flex;
   flex-direction: column;
@@ -1196,6 +1209,45 @@ a.lib-row:hover {
 .answer-verified svg {
   color: var(--om-accent-primary);
   flex-shrink: 0;
+  animation: verified-stamp 0.4s ease both;
+}
+@keyframes verified-stamp {
+  from {
+    transform: scale(1.5) rotate(-12deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(0.92);
+    opacity: 1;
+  }
+}
+
+/* per-instrument monogram */
+.inst-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: #fff;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.inst-badge.sm {
+  width: 22px;
+  height: 22px;
+  font-size: 9px;
+  border-radius: 6px;
+}
+.inst-badge.lg {
+  width: 44px;
+  height: 44px;
+  font-size: 15px;
+  border-radius: 10px;
 }
 mark.cited {
   background: var(--om-accent-primary-bg);
@@ -1840,4 +1892,108 @@ mark.cited {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ── v1.3: starters, first-run, manual detail, usage cue ── */
+.ask-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: center;
+}
+.ask-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-width: 40rem;
+}
+.ask-starter {
+  background: var(--om-bg-surface);
+  color: var(--om-text-prose);
+  border: 1px solid var(--om-border-input);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-weight: 500;
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+.ask-starter:hover {
+  background: var(--om-accent-primary-bg);
+  color: var(--om-accent-primary-hover);
+  border-color: transparent;
+}
+
+.firstrun {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  background: var(--om-accent-primary-bg);
+  border: 1px solid var(--om-border-card);
+  border-radius: var(--om-radius-md);
+}
+.firstrun-body {
+  flex: 1;
+  min-width: 0;
+}
+.firstrun-body h2 {
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+.firstrun-body p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--om-text-prose);
+}
+
+.sidebar-usage {
+  font-size: 11px;
+  color: var(--om-text-tertiary);
+  padding: 2px 2px 6px;
+}
+
+.manual-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+}
+.manual-facts {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--om-text-secondary);
+}
+.manual-superseded {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--om-text-tertiary);
+}
+.manual-ask {
+  font-size: 14px;
+  padding: 0.7rem 1.2rem;
+}
+.manual-outline {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: mo;
+}
+.manual-outline li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--om-border-subtle);
+  font-size: 13px;
+}
+.manual-outline .mo-section {
+  color: var(--om-text-prose);
+}
+.manual-outline .mo-page {
+  color: var(--om-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
-import { listVisibleVersions, type LibraryVersion } from '../lib/api'
+import { listVisibleVersions, type LibraryVersion, myQuestionsToday } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { type Theme, useTheme } from '../lib/theme'
 
@@ -32,12 +32,16 @@ export function Sidebar({
   const { theme, setTheme } = useTheme()
   const { versionId } = useParams()
   const [manuals, setManuals] = useState<LibraryVersion[]>([])
+  const [askedToday, setAskedToday] = useState<number | null>(null)
   const canUpload = role === 'contributor' || role === 'admin'
 
   useEffect(() => {
     listVisibleVersions()
       .then((rows) => setManuals(rows.filter((v) => v.status === 'active')))
       .catch(() => setManuals([]))
+    myQuestionsToday()
+      .then(setAskedToday)
+      .catch(() => setAskedToday(null))
   }, [])
 
   const email = session?.user.email ?? ''
@@ -127,6 +131,11 @@ export function Sidebar({
               </button>
             ))}
           </span>
+          {askedToday != null && askedToday > 0 && (
+            <span className="sidebar-usage">
+              {askedToday} question{askedToday === 1 ? '' : 's'} today
+            </span>
+          )}
           <button
             className="ghost"
             onClick={async () => {

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { FirstRunCard } from '../components/FirstRunCard'
 import { deleteVersion, listVisibleVersions, type LibraryVersion } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { instrumentBadge } from '../lib/instrument'
 import { confirmDeleteVersion } from '../lib/ui'
 
 // The manual library (Library artboard). RLS returns status='active' for anyone, plus the
@@ -61,6 +63,7 @@ export function Library() {
       </header>
 
       <div className="page-body">
+        <FirstRunCard />
         {error && <div className="msg err">{error}</div>}
 
         {rows && active.length === 0 && mine.length === 0 && (
@@ -79,9 +82,14 @@ export function Library() {
               <span>License</span>
               <span>Status</span>
             </div>
-            {active.map((v) => (
-              <Link key={v.id} to={`/ask/${v.id}`} className="lib-row">
+            {active.map((v) => {
+              const badge = instrumentBadge(v.instrument?.name)
+              return (
+              <Link key={v.id} to={`/manual/${v.id}`} className="lib-row">
                 <span className="r-name">
+                  <span className="inst-badge" style={{ background: badge.tint }}>
+                    {badge.initials}
+                  </span>
                   <span className="r-title">{v.instrument?.name ?? 'Unknown instrument'}</span>
                   <span className="r-sub">
                     {v.title}
@@ -105,7 +113,8 @@ export function Library() {
                   </span>
                 </span>
               </Link>
-            ))}
+              )
+            })}
           </>
         )}
 
