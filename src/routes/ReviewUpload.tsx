@@ -9,6 +9,7 @@ import {
   reuploadSourceUrl,
   type ReviewData,
 } from '../lib/api'
+import { confirmDeleteVersion } from '../lib/ui'
 
 // Where the Docling ingestion job runs. A pending review is blocked on one of these.
 const INGEST_RUNS_URL = 'https://github.com/chiragsingla25/verbatim/actions/workflows/ingest.yml'
@@ -25,12 +26,18 @@ export function ReviewUpload() {
   const navigate = useNavigate()
   const fileInput = useRef<HTMLInputElement>(null)
   const [data, setData] = useState<ReviewData | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null) // getReviewData failed
+  const [actionError, setActionError] = useState<string | null>(null) // a button failed
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(() => {
     if (!versionId) return
-    getReviewData(versionId).then(setData).catch((e) => setError(String(e.message ?? e)))
+    getReviewData(versionId)
+      .then((d) => {
+        setData(d)
+        setLoadError(null)
+      })
+      .catch((e) => setLoadError(String(e.message ?? e)))
   }, [versionId])
 
   useEffect(load, [load])
@@ -42,10 +49,10 @@ export function ReviewUpload() {
     return () => clearInterval(t)
   }, [data?.job?.state, load])
 
-  if (error)
+  if (loadError && !data)
     return (
       <div className="page-body">
-        <div className="msg err">{error}</div>
+        <div className="msg err">{loadError}</div>
         <button className="secondary" onClick={() => navigate('/', { replace: true })}>
           ← Manual library
         </button>
@@ -62,20 +69,23 @@ export function ReviewUpload() {
   // The server-side watchdog fails a wedged job, but only after its budget; flag it
   // in the UI sooner so the reviewer isn't left staring at a spinner.
   const looksStuck = job?.state === 'parsing' && idleMin >= 20
-  // Recovery actions are available on a pending version once ingestion is terminal-bad
-  // (failed / rejected) or is clearly wedged.
+  // Recovery actions on a pending version once ingestion is terminal-bad / wedged / never
+  // started. Retry needs an already-uploaded source, so it's hidden when there's no job
+  // yet (Replace is the path then).
   const canRecover =
     pending && (job == null || ['failed', 'rejected'].includes(job.state) || looksStuck)
+  const canRetry = canRecover && job != null
+  const showBar = pending && (canDecide || canRecover)
 
   // Stays on the page and re-polls (retry / replace).
   async function run(fn: () => Promise<unknown>, label: string) {
     setBusy(true)
-    setError(null)
+    setActionError(null)
     try {
       await fn()
       load()
     } catch (e) {
-      setError(`${label}: ${e instanceof Error ? e.message : String(e)}`)
+      setActionError(`${label}: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setBusy(false)
     }
@@ -84,12 +94,12 @@ export function ReviewUpload() {
   // Navigates away on success (publish / reject / delete).
   async function leave(fn: () => Promise<unknown>, label: string) {
     setBusy(true)
-    setError(null)
+    setActionError(null)
     try {
       await fn()
       navigate('/', { replace: true })
     } catch (e) {
-      setError(`${label}: ${e instanceof Error ? e.message : String(e)}`)
+      setActionError(`${label}: ${e instanceof Error ? e.message : String(e)}`)
       setBusy(false)
     }
   }
@@ -100,12 +110,7 @@ export function ReviewUpload() {
   }
 
   function del() {
-    if (
-      !window.confirm(
-        'Delete this version, its source file, and everything ingestion extracted? This cannot be undone.',
-      )
-    )
-      return
+    if (!confirmDeleteVersion(version.title)) return
     leave(() => deleteVersion(version.id), 'delete')
   }
 
@@ -113,7 +118,10 @@ export function ReviewUpload() {
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-picking the same file after an error
     if (!file) return
-    await run(async () => {
+    setBusy(true)
+    setActionError(null)
+    let uploaded = false
+    try {
       const { url } = await reuploadSourceUrl(version.id)
       const put = await fetch(url, {
         method: 'PUT',
@@ -121,8 +129,19 @@ export function ReviewUpload() {
         body: file,
       })
       if (!put.ok) throw new Error(`upload failed (HTTP ${put.status})`)
+      uploaded = true
       await retryIngest(version.id)
-    }, 'replace')
+      load()
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err)
+      setActionError(
+        uploaded
+          ? `File replaced, but starting ingestion failed: ${m} — click “Retry ingestion”.`
+          : `replace: ${m}`,
+      )
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -237,27 +256,30 @@ export function ReviewUpload() {
           </figure>
         ))}
 
-        {pending && (canDecide || canRecover) && (
+        {actionError && (
+          <div className="msg err" style={{ marginTop: '1.5rem' }}>
+            {actionError}
+          </div>
+        )}
+        {showBar && (
           <div className="review-actions">
             {canDecide && (
               <button disabled={busy} onClick={() => leave(() => publishVersion(version.id), 'publish')}>
                 {busy ? 'Working…' : 'Approve & publish version'}
               </button>
             )}
-            {canRecover && (
+            {canRetry && (
               <button disabled={busy} onClick={() => run(() => retryIngest(version.id), 'retry')}>
                 Retry ingestion
               </button>
             )}
-            {(canDecide || canRecover) && (
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() => fileInput.current?.click()}
-              >
-                Replace PDF…
-              </button>
-            )}
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => fileInput.current?.click()}
+            >
+              Replace PDF…
+            </button>
             <button className="secondary" disabled={busy} onClick={reject}>
               Reject upload
             </button>

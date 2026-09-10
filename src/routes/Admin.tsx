@@ -15,6 +15,7 @@ import {
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { errMessage, relDate } from '../lib/format'
+import { confirmDeleteVersion } from '../lib/ui'
 import { APP_ROLES, type AppRole } from '../lib/schema'
 
 type Tab = 'users' | 'manuals' | 'activity'
@@ -234,8 +235,7 @@ function ManualsTab() {
                     className="danger"
                     disabled={busyId === v.id}
                     onClick={() => {
-                      if (window.confirm(`Delete “${v.title}” and its uploaded file? This cannot be undone.`))
-                        act(v.id, () => deleteVersion(v.id))
+                      if (confirmDeleteVersion(v.title)) act(v.id, () => deleteVersion(v.id))
                     }}
                   >
                     Delete

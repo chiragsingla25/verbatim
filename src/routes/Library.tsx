@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { deleteVersion, listVisibleVersions, type LibraryVersion } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { confirmDeleteVersion } from '../lib/ui'
 
 // The manual library (Library artboard). RLS returns status='active' for anyone, plus the
 // caller's own pending uploads — a contributor sees their in-review versions with a link
@@ -22,7 +23,7 @@ export function Library() {
   useEffect(reload, [reload])
 
   async function discard(v: LibraryVersion) {
-    if (!window.confirm(`Delete “${v.title}” and its uploaded file? This cannot be undone.`)) return
+    if (!confirmDeleteVersion(v.title)) return
     setError(null)
     setBusyId(v.id)
     try {
