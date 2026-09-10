@@ -20,16 +20,25 @@ come later — v1 is the deterministic baseline.
 
 ## Architecture (do not redesign without updating the spec)
 
-RAG, single retriever, deterministic pipeline — **not** an agent:
+Conversational RAG, single retriever — **not** an agent (no planner, no ReAct loop, no
+tool use). As of **v1.2** (`specs/2026-09-10-verbatim-v1.2.md`) `/ask` is multi-turn:
 
 ```
-query → embed (gte-small, in the Edge Function) → pgvector top-k (k≈10–12, filtered to one
-      version_id, RLS-enforced via match_chunks) → answer w/ structured citations, or abstain
-      → verify (2nd LLM call: every claim ↔ a retrieved chunk from the right version)
-      → log to query_log
+follow-up + conversation (bounded recent turns + a rolling per-session summary)
+  → condense to a standalone retrieval query  (or flag it __META__)
+  → embed (gte-small) → pgvector top-k (k=12, ONE version_id, RLS via match_chunks)
+  → answer w/ structured citations (conversation is context for the question ONLY,
+    never a source of a claim) OR abstain
+  → verify (2nd LLM call, chunks-only — a claim backed only by the transcript/summary
+    is UNSUPPORTED) → log to query_log (session_id, turn, kind)
 ```
 
-- **No reranker in v1** (deferred). No planner/orchestrator, no ReAct loop, no LangChain. Deferred
+- **Three response kinds:** `grounded` (≥1 citation to the requested version), `abstained`
+  ("not found in this version"), or `meta` (a question about the conversation itself —
+  answered from the transcript, no citation, no manual claim, verify skipped).
+- A **first / single-turn** call has no conversation → byte-identical to the pre-v1.2
+  pipeline (why the abstention + cross-version-leak evals stay green unchanged).
+- **No reranker** (deferred). No planner/orchestrator, no ReAct loop, no LangChain. Deferred
   features live in the spec's out-of-scope section — check it before adding anything.
 - **Version isolation is enforced by Postgres RLS**, not an application `WHERE` clause. The
   `match_chunks` RPC is `security invoker` so it runs under the caller's JWT. A bug in the Edge
@@ -97,8 +106,8 @@ by reopening this phase list.
     `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL` for `ci.yml` (Phase 2 evals).
 - **Embedding model must be `gte-small` on both sides** — Supabase's built-in at query time and
   `thenlper/gte-small` at ingest. Changing it means re-embedding the whole corpus.
-- Every answer either carries ≥1 citation to a chunk in the requested `versionId` or sets
-  `abstained: true`. No third state.
+- Every answer is `grounded` (≥1 citation to a chunk in the requested `versionId`),
+  `abstained: true`, or `meta` (about the conversation — no citation, no manual claim).
 - New Supabase table → write its RLS policy in the same migration. RLS-on + no-policy = unreadable;
   that's the safe default, not a bug to route around with the service client.
 - **Supabase free tier pauses a project after 7 days idle.** A scheduled GitHub Action pings a

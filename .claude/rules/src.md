@@ -20,8 +20,11 @@
   key + service-role key via `supabase secrets`; the ingestion Action holds the service-role key
   via an Actions secret. The service-role key must never reach the SPA bundle.
 - **No secrets or network calls at import time.** Read env inside handlers.
-- Every answer either carries ≥1 citation to a chunk in the requested `versionId` or sets
-  `abstained: true`. There is no third state.
+- Every answer is `grounded` (≥1 citation to a chunk in the requested `versionId`),
+  `abstained: true`, or `meta` (a v1.2 question about the conversation itself — no citation,
+  no manual claim, verify skipped). The conversation transcript / rolling summary is context
+  for understanding the question ONLY; `verify` still checks every claim against this turn's
+  retrieved chunks.
 - New Supabase table → its RLS policy ships in the same migration. RLS-on + no-policy = unreadable;
   that's the safe default, not something to route around with the service client.
 - **No reranker in v1.** Retrieve `k≈10–12` and pass straight to the answer step. If a reranker is
