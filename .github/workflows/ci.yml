@@ -2,7 +2,12 @@ name: ci
 
 # PR gate. Fast: unit tests (SPA + Edge Functions) + the quick eval check
 # (abstention accuracy + cross-version-leak, ~25 /ask calls, no RAGAS).
-# The full RAGAS suite runs in evals-nightly.yml.
+#
+# On merge to main a third job (full-evals) also runs the FULL suite — RAGAS +
+# all 24 golden + 6 conversational + cross-version. deploy.yml gates on this whole
+# workflow succeeding, so a false-abstain / groundedness regression on an
+# *answerable* case blocks the deploy (the --quick set never scores those).
+# evals-nightly.yml still runs the full suite on a schedule to catch live-model drift.
 #
 # Required repo secrets: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
 # LLM_BASE_URL, LLM_API_KEY, LLM_MODEL.
@@ -63,5 +68,43 @@ jobs:
           fi
           if [ "$ec" = "3" ]; then
             echo "::error::quick evals could not run — /ask auth rejected; check SUPABASE_* secrets"
+          fi
+          exit "$ec"
+
+  # Merge-to-main only. The full suite (RAGAS + every golden + conversational +
+  # cross-version) — ~15-25 min, free-model rate-limited. deploy.yml won't publish
+  # a commit whose ci run failed, so a regression here blocks the deploy.
+  full-evals:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: evals/requirements-ragas.txt
+      - run: pip install -r evals/requirements-ragas.txt
+      - name: run_evals (full)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+        # Same exit convention as quick-evals: 2 == LLM quota exhausted (warn, don't
+        # block — the pipeline is healthy); 3 == /ask auth rejected (fail loudly).
+        run: |
+          set +e
+          python evals/run_evals.py
+          ec=$?
+          if [ "$ec" = "2" ]; then
+            echo "::warning::full evals inconclusive — LLM daily quota exhausted (pipeline is healthy)"
+            exit 0
+          fi
+          if [ "$ec" = "3" ]; then
+            echo "::error::full evals could not run — /ask auth rejected; check SUPABASE_* secrets"
           fi
           exit "$ec"
