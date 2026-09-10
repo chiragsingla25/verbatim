@@ -79,15 +79,23 @@ export function buildHandler(deps: Deps) {
     if (!repo || !token) return json(500, { error: 'GITHUB_DISPATCH_REPO / _TOKEN not set' })
 
     const objectPath = `v/${versionId}/source.pdf`
-    const status = await deps.dispatch(repo, token, {
-      event_type: 'ingest',
-      client_payload: { job_id: job.id, version_id: versionId, object_path: objectPath },
-    })
+    const failJob = (msg: string) =>
+      deps.admin.from('ingest_jobs').update({ state: 'failed', error: msg }).eq('id', job.id)
+
+    let status: number
+    try {
+      status = await deps.dispatch(repo, token, {
+        event_type: 'ingest',
+        client_payload: { job_id: job.id, version_id: versionId, object_path: objectPath },
+      })
+    } catch (e) {
+      // A thrown fetch (DNS / TLS / network) would otherwise leave the job stuck at 'queued'
+      const msg = `repository_dispatch threw: ${e instanceof Error ? e.message : String(e)}`
+      await failJob(msg)
+      return json(502, { error: msg, job_id: job.id })
+    }
     if (status < 200 || status >= 300) {
-      await deps.admin
-        .from('ingest_jobs')
-        .update({ state: 'failed', error: `repository_dispatch HTTP ${status}` })
-        .eq('id', job.id)
+      await failJob(`repository_dispatch HTTP ${status}`)
       return json(502, { error: `repository_dispatch failed: HTTP ${status}`, job_id: job.id })
     }
 

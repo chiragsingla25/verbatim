@@ -340,7 +340,9 @@ export async function rejectVersion(versionId: string, reason: string): Promise<
 // ingest_jobs + writes the audit entry.
 export async function deleteVersion(versionId: string): Promise<void> {
   const rm = await supabase.storage.from('manuals').remove([`v/${versionId}/source.pdf`])
-  if (rm.error && !/not found/i.test(rm.error.message)) throw new Error(rm.error.message)
+  if (rm.error && !/not found/i.test(rm.error.message ?? '')) {
+    throw new Error(rm.error.message || 'could not remove the source file')
+  }
   const { error } = await supabase.rpc('delete_manual_version', { p_version_id: versionId })
   if (error) throw new Error(error.message)
 }
@@ -350,10 +352,25 @@ export async function retryIngest(versionId: string): Promise<{ jobId: string }>
   const { data, error } = await supabase.functions.invoke('ingest-trigger', {
     body: { versionId },
   })
-  if (error) throw new Error(error.message)
+  if (error) throw new Error(await functionErrorMessage(error))
   const jobId = (data as { job_id?: string } | null)?.job_id
   if (!jobId) throw new Error('ingest-trigger returned no job id')
   return { jobId }
+}
+
+// supabase.functions.invoke gives a FunctionsHttpError whose .message is generic; the
+// real reason is the function's JSON body, reachable via .context (the Response).
+async function functionErrorMessage(error: unknown): Promise<string> {
+  const ctx = (error as { context?: Response }).context
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const body = (await ctx.json()) as { error?: string }
+      if (body?.error) return body.error
+    } catch {
+      /* fall through to the generic message */
+    }
+  }
+  return error instanceof Error ? error.message : String(error)
 }
 
 // A short-TTL URL for overwriting manuals/v/<id>/source.pdf (Replace the source PDF).

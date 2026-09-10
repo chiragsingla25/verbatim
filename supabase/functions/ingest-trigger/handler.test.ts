@@ -173,3 +173,21 @@ Deno.test('marks the job failed and returns 502 when dispatch fails', async () =
   assertEquals(updates[0].table, 'ingest_jobs')
   assertEquals(updates[0].row.state, 'failed')
 })
+
+Deno.test('a thrown dispatch also marks the job failed (no wedged queued row)', async () => {
+  const updates: Array<{ table: string; row: Record<string, unknown> }> = []
+  const h = buildHandler({
+    env: baseEnv,
+    admin: fakeAdmin({
+      version: { id: VID, status: 'pending', created_by: OWNER },
+      jobId: 'job-x',
+      onUpdate: (table, row) => updates.push({ table, row }),
+    }),
+    getCaller: asCaller({ id: OWNER, role: 'contributor' }),
+    dispatch: () => Promise.reject(new Error('network down')),
+  } as Deps)
+  const res = await h(req({ versionId: VID }))
+  assertEquals(res.status, 502)
+  assertEquals(updates.length, 1)
+  assertEquals(updates[0].row.state, 'failed')
+})
