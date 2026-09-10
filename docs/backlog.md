@@ -54,6 +54,15 @@ because there is no backing query. Add a client-side filter over `listVisibleVer
   abstention + cross-version-leak only. The `k=8` / chunk-cap answer-quality regression slipped
   through because of this. Options: run the full suite per-PR, or raise `--abstain-fail-under`
   above 0.90 so a 1–2 case regression trips it. Size: S.
+- **PSS retrieval quality** — `pss-reverse-items` and `pss-response-scale` (both answerable)
+  abstain deterministically: `match_chunks` returns only the norm-table / references / intro
+  chunks and never the PSS items page (`"0 = Never … 4 = Very Often"`, the numbered items),
+  so the answer step has nothing to cite. Not a v1.2 regression — the single-turn path is
+  byte-identical, and prior releases only gated on `run_evals.py --quick`, which never scored
+  these two. RAGAS `context_precision` 0.575 on the full set is the same signal. Fix path:
+  revisit PSS chunking (the items page is one ~1 KB chunk that isn't matching the paraphrased
+  query), or the already-deferred **reranker**. Full-set abstention is 91.67%, above the 0.90
+  gate, so this is quality debt, not a blocker. Size: M. Raised in v1.2 release-qa Verify.
 
 ---
 

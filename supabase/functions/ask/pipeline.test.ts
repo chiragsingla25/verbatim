@@ -24,7 +24,7 @@ function makeDeps(o: Overrides = {}) {
     matchChunks: () => Promise.resolve(o.hits ?? [chunk('c1'), chunk('c2', 2)]),
     chat: (system: string) =>
       Promise.resolve(
-        system === ANSWER_SYSTEM
+        system.startsWith(ANSWER_SYSTEM)
           ? (o.answerJson ??
             '{"answer":"The PSS is scored by summing items.","citations":[{"chunkId":"c1","page":1,"quote":"scored by summing items"}],"abstained":false}')
           : (o.verifyJson ??
@@ -130,7 +130,7 @@ Deno.test('one retry on non-JSON draft, then succeeds', async () => {
   let calls = 0
   const { deps } = makeDeps({
     chat: (system: string) => {
-      if (system === ANSWER_SYSTEM) {
+      if (system.startsWith(ANSWER_SYSTEM)) {
         calls++
         return Promise.resolve(
           calls === 1
@@ -174,7 +174,7 @@ Deno.test('follow-up: condense rewrites the query; still grounded + verified', a
     chat: (system: string) => {
       if (system === CONDENSE_SYSTEM)
         return Promise.resolve('{"standalone":"PSS-10 cutoff score for the high severity band"}')
-      if (system === ANSWER_SYSTEM)
+      if (system.startsWith(ANSWER_SYSTEM))
         return Promise.resolve(
           '{"answer":"The high band starts at 27.","citations":[{"chunkId":"c1","page":1,"quote":"summing items"}],"abstained":false}',
         )
@@ -207,7 +207,7 @@ Deno.test('meta: condense returns __META__ -> answered from transcript, no retri
       if (system === CONDENSE_SYSTEM) return Promise.resolve('{"standalone":"__META__"}')
       if (system === META_SYSTEM)
         return Promise.resolve('{"answer":"You asked how the PSS is scored."}')
-      if (system === VERIFY_SYSTEM) {
+      if (system.startsWith(VERIFY_SYSTEM)) {
         verifyCalled = true
         return Promise.resolve('{"supported":true,"unsupportedClaims":[],"revisedAnswer":""}')
       }
@@ -234,7 +234,7 @@ Deno.test('no-smuggle: verify strips a transcript-only claim -> abstain', async 
     chat: (system: string) => {
       if (system === CONDENSE_SYSTEM)
         return Promise.resolve('{"standalone":"GAD-7 moderate cutoff score"}')
-      if (system === ANSWER_SYSTEM)
+      if (system.startsWith(ANSWER_SYSTEM))
         // model tries to reuse the PHQ-9 fact from the transcript
         return Promise.resolve(
           '{"answer":"GAD-7 moderate is 10, same as the PHQ-9.","citations":[{"chunkId":"c1","page":1,"quote":"summing items"}],"abstained":false}',
@@ -271,7 +271,7 @@ Deno.test('long history: older turns fold into the summary (saveSummary called)'
     chat: (system: string) => {
       if (system === SUMMARY_SYSTEM) return Promise.resolve('{"summary":"Discussed q1 and q2."}')
       if (system === CONDENSE_SYSTEM) return Promise.resolve('{"standalone":"q4 standalone"}')
-      if (system === ANSWER_SYSTEM)
+      if (system.startsWith(ANSWER_SYSTEM))
         return Promise.resolve(
           '{"answer":"ok.","citations":[{"chunkId":"c1","page":1,"quote":"summing items"}],"abstained":false}',
         )

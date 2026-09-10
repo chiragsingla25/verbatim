@@ -16,6 +16,7 @@ import {
   verifyResultSchema,
 } from '../_shared/schema.ts'
 import {
+  ANSWER_CONV_RULES,
   ANSWER_SYSTEM,
   answerUserPrompt,
   CONDENSE_SYSTEM,
@@ -25,6 +26,7 @@ import {
   type RetrievedChunk,
   SUMMARY_SYSTEM,
   summaryUserPrompt,
+  VERIFY_CONV_RULE,
   VERIFY_SYSTEM,
   verifyUserPrompt,
 } from '../_shared/prompt.ts'
@@ -279,10 +281,12 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
 
   const validIds = new Set(hits.map((h) => h.chunkId))
 
-  // 2. generate a cited draft (the conversation is context for the question only)
+  // 2. generate a cited draft. The conversational rules are appended ONLY when there is
+  //    history — a single-turn call keeps the exact v1.1.2 prompt (no abstention drift).
+  const answerSystem = hasHistory ? `${ANSWER_SYSTEM}\n\n${ANSWER_CONV_RULES}` : ANSWER_SYSTEM
   const draft = await chatJson(
     deps.chat,
-    ANSWER_SYSTEM,
+    answerSystem,
     answerUserPrompt(question, hits, conv),
     parseDraft,
   )
@@ -298,9 +302,10 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
     ...hits.filter((h) => citedIds.has(h.chunkId)),
     ...hits.filter((h) => !citedIds.has(h.chunkId)).slice(0, 2),
   ]
+  const verifySystem = hasHistory ? `${VERIFY_SYSTEM}\n\n${VERIFY_CONV_RULE}` : VERIFY_SYSTEM
   const verify = await chatJson(
     deps.chat,
-    VERIFY_SYSTEM,
+    verifySystem,
     verifyUserPrompt(draft.answer, verifyContext),
     parseVerify,
   )

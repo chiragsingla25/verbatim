@@ -23,10 +23,6 @@ export const ANSWER_SYSTEM = [
   '- Quote must be a short verbatim span copied from that chunk.',
   '- If the CONTEXT does not answer the question, abstain. Do NOT use outside knowledge,',
   '  and do NOT answer from a different instrument or edition.',
-  '- You may be given CONVERSATION (a running summary + recent turns) to understand what the',
-  '  question refers to (pronouns, "that", follow-ups). CONVERSATION is context ONLY: never',
-  '  cite it, and never treat anything said earlier as a fact about the manual. If a claim is',
-  '  only in the CONVERSATION and not in the CONTEXT, leave it out.',
   '',
   'Reply with ONE JSON object, nothing else:',
   '{"answer": string, "citations": [{"chunkId": string, "page": integer, "quote": string}],',
@@ -37,9 +33,7 @@ export const ANSWER_SYSTEM = [
 export const VERIFY_SYSTEM = [
   'You are checking a draft ANSWER against the CONTEXT chunks it was written from. A claim is',
   'SUPPORTED only if a chunk states it; anything not in the CONTEXT is UNSUPPORTED, even if it',
-  'is true in general or was said earlier in the conversation. Check ONLY against the CONTEXT',
-  'below — a claim whose only backing is "the user was told this earlier" or a conversation',
-  'summary is UNSUPPORTED.',
+  'is true in general.',
   '',
   'Reply with ONE JSON object, nothing else:',
   '{"supported": boolean, "unsupportedClaims": [string], "revisedAnswer": string}',
@@ -48,6 +42,19 @@ export const VERIFY_SYSTEM = [
   '- revisedAnswer: the ANSWER re-written to keep ONLY the supported claims, verbatim where',
   `  possible. If nothing supported remains, revisedAnswer must be exactly "${ABSTAIN_MESSAGE}".`,
 ].join('\n')
+
+// v1.2: appended to ANSWER_SYSTEM / VERIFY_SYSTEM ONLY when the turn has conversation
+// context — a single-turn call keeps the exact v1.1.2 prompts (no abstention drift).
+export const ANSWER_CONV_RULES = [
+  'You are also given CONVERSATION (a running summary + recent turns) to understand what the',
+  'question refers to — pronouns, "that", follow-ups. CONVERSATION is context ONLY: never cite',
+  'it, and never treat anything said earlier as a fact about the manual. If a claim is only in',
+  'the CONVERSATION and not in the CONTEXT, leave it out.',
+].join('\n')
+
+export const VERIFY_CONV_RULE =
+  'A claim whose only backing is "the user was told this earlier" or a conversation summary is ' +
+  'UNSUPPORTED — check ONLY against the CONTEXT chunks below.'
 
 // ── conversational (v1.2) ────────────────────────────────────────────────────
 
