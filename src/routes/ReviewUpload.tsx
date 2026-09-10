@@ -2,6 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getReviewData, publishVersion, rejectVersion, type ReviewData } from '../lib/api'
 
+// Where the Docling ingestion job runs. A pending review is blocked on one of these.
+const INGEST_RUNS_URL = 'https://github.com/chiragsingla25/verbatim/actions/workflows/ingest.yml'
+
+function minutesSince(iso: string): number {
+  const t = Date.parse(iso)
+  return t > 0 ? Math.max(0, Math.round((Date.now() - t) / 60_000)) : 0
+}
+
 // The contributor reviews what ingestion extracted (tables, OCR quality, flags) against the
 // source PDF, then publishes (status -> active) or rejects.
 export function ReviewUpload() {
@@ -35,6 +43,12 @@ export function ReviewUpload() {
 
   const { version, job, tableChunks, totalChunks, sourceUrl } = data
   const canDecide = job?.state === 'review' && version.status === 'pending'
+  const running = job != null && ['queued', 'parsing'].includes(job.state)
+  const elapsedMin = job ? minutesSince(job.startedAt) : 0
+  const idleMin = job ? minutesSince(job.updatedAt) : 0
+  // The server-side watchdog fails a wedged job, but only after its budget; flag it
+  // in the UI sooner so the reviewer isn't left staring at a spinner.
+  const looksStuck = job?.state === 'parsing' && idleMin >= 20
 
   async function decide(fn: () => Promise<void>, label: string) {
     setBusy(true)
@@ -84,9 +98,37 @@ export function ReviewUpload() {
           )}
         </div>
 
-        {job?.error && <div className="msg err">{job.error}</div>}
-        {job && !['review', 'published', 'rejected', 'failed'].includes(job.state) && (
-          <div className="msg info">Parsing… this page refreshes automatically.</div>
+        {job?.state === 'failed' && (
+          <div className="msg err">
+            <strong>Ingestion failed.</strong> {job.error || 'No error detail was recorded.'}
+            <br />
+            Check the source file, then re-upload the manual from the library to try again.
+          </div>
+        )}
+        {job?.state === 'rejected' && (
+          <div className="msg info">
+            This upload was rejected{job.error ? `: ${job.error}` : ''}. Its extracted data has
+            been discarded.
+          </div>
+        )}
+        {running && (
+          <div className="msg info">
+            {job.state === 'queued' ? 'Queued for parsing' : 'Parsing'}
+            {elapsedMin >= 1 ? ` — ${elapsedMin} min elapsed` : ''}. This page refreshes itself.
+            <br />
+            A cold run downloads the parser models first and can take 10–15 minutes;{' '}
+            <a href={INGEST_RUNS_URL} target="_blank" rel="noreferrer">
+              watch the ingestion job ↗
+            </a>
+            .
+            {looksStuck && (
+              <>
+                <br />
+                This has run unusually long. If it doesn’t finish or fail within a few
+                minutes, re-upload the manual.
+              </>
+            )}
+          </div>
         )}
 
         <h2 style={{ marginTop: '1.75rem' }}>Extracted tables ({tableChunks.length})</h2>

@@ -17,8 +17,10 @@ an administrator grants contributor access. If `/upload` or a review page shows
 ## Before you start
 
 Someone has uploaded a manual. Its version shows status **`pending`** and an ingestion job is
-running (Docling parses the PDF, extracts tables, and builds the search index — this usually
-takes 2–3 minutes).
+running (Docling parses the PDF, extracts tables, and builds the search index). A warm run
+takes 2–4 minutes; the first run after a while re-downloads the parser models and can take
+10–15. The review screen shows elapsed time and links to the running job. If a job runs far
+past that, it is failed automatically and you re-upload.
 
 ---
 

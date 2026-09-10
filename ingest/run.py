@@ -30,6 +30,8 @@ import io
 import os
 import sys
 import tempfile
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
@@ -47,6 +49,44 @@ from ingest.parse import parse_pdf
 
 BUCKET = "manuals"
 LOW_OCR_THRESHOLD = 0.8
+# Watchdog default — overridden by INGEST_WATCHDOG_SECONDS in the workflow. Must sit
+# comfortably below the Actions job's timeout-minutes so it wins the race and leaves
+# the job in a terminal state instead of a runner SIGKILL wedging it at 'parsing'.
+WATCHDOG_SECONDS = int(os.environ.get("INGEST_WATCHDOG_SECONDS", "1500"))
+
+
+def start_watchdog(db_url: str, job_id: str, seconds: int = WATCHDOG_SECONDS) -> None:
+    """Fail the job and hard-exit if the pipeline is still running after `seconds`.
+
+    A daemon thread, so the happy path (process exits in ~2 min) never notices it.
+    The UPDATE is conditional on the job still being queued/parsing, so a race with a
+    normal 'review'/'failed' finish is a no-op and exits 0.
+    """
+
+    def bark() -> None:
+        time.sleep(seconds)
+        rows = -1
+        try:
+            with psycopg.connect(db_url, autocommit=True, connect_timeout=15) as conn:
+                cur = conn.execute(
+                    "update public.ingest_jobs "
+                    "set state = 'failed', error = %s, updated_at = now() "
+                    "where id = %s and state in ('queued', 'parsing')",
+                    (
+                        f"ingestion ran past its {seconds}s budget and was stopped "
+                        f"by the watchdog — re-upload to try again",
+                        job_id,
+                    ),
+                )
+                rows = cur.rowcount
+        except Exception as exc:  # best-effort; the runner timeout is the backstop
+            sys.stderr.write(f"watchdog: DB write failed: {exc!r}\n")
+        sys.stderr.write(
+            f"watchdog: tripped after {seconds}s, marked {max(rows, 0)} job(s) failed\n"
+        )
+        os._exit(1 if rows != 0 else 0)
+
+    threading.Thread(target=bark, name="ingest-watchdog", daemon=True).start()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -175,6 +215,9 @@ def insert_chunks(
 def run(job_id: str, version_id: str, object_path: str) -> None:
     cfg = load_config()
 
+    # Backstop against a hung parse / imminent runner kill (see start_watchdog).
+    start_watchdog(cfg.db_url, job_id)
+
     with psycopg.connect(cfg.db_url, autocommit=True) as conn:
         register_vector(conn)
 
@@ -189,12 +232,35 @@ def run(job_id: str, version_id: str, object_path: str) -> None:
             fail_job(conn, job_id, "not a PDF: missing %PDF- magic bytes", ["not_a_pdf"])
             sys.exit(1)
         try:
-            encrypted = PdfReader(io.BytesIO(pdf_bytes)).is_encrypted
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            encrypted = reader.is_encrypted
         except Exception as exc:  # unreadable / truncated PDF
             fail_job(conn, job_id, f"pypdf could not read the file: {exc!r}", ["not_a_pdf"])
             sys.exit(1)
         if encrypted:
             fail_job(conn, job_id, "encrypted PDF cannot be ingested", ["encrypted_pdf"])
+            sys.exit(1)
+
+        # 4b. cheap content sniff before the expensive Docling parse — a blank or
+        # junk PDF shouldn't cost a multi-minute parse just to yield 0 chunks. A
+        # scanned manual has image xobjects (has_images) and takes the OCR path.
+        try:
+            sample = reader.pages[: min(len(reader.pages), 5)]
+            n_pages = len(reader.pages)
+            has_text = any((p.extract_text() or "").strip() for p in sample)
+            has_images = any(bool(getattr(p, "images", ())) for p in sample)
+        except Exception:  # sniff is advisory — let Docling be the judge
+            n_pages, has_text, has_images = 1, True, False
+        if n_pages == 0:
+            fail_job(conn, job_id, "PDF has no pages", ["empty_pdf"])
+            sys.exit(1)
+        if not has_text and not has_images:
+            fail_job(
+                conn,
+                job_id,
+                "no readable text or images in the first pages — is this the right file?",
+                ["no_readable_content"],
+            )
             sys.exit(1)
 
         # 5-8. parse -> chunk -> embed -> insert -> job to review

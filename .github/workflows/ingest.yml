@@ -18,7 +18,10 @@ on:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # torch + docling install and first-run model download, then a CPU parse
+    # Cold run: pip install + first-ever model download + a CPU parse. Warm run (model
+    # cache hit): a couple of minutes. run.py's watchdog fails the job cleanly well
+    # before this hard limit, so a stuck parse never wedges the review screen.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +30,21 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: ingest/requirements.txt
+
+      # Docling / transformers pull their layout + OCR weights (~0.5-1 GB) from the
+      # Hugging Face hub on first use. Without this cache every dispatch re-downloads
+      # them, which is the bulk of the wall-clock time. Keyed on the pinned deps so a
+      # version bump busts it.
+      - name: Cache model weights
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            ~/.cache/docling
+            ~/.cache/torch
+          key: ingest-models-${{ hashFiles('ingest/requirements.txt') }}
+          restore-keys: |
+            ingest-models-
 
       - name: Install ingestion deps
         run: pip install -r ingest/requirements.txt
@@ -40,6 +58,9 @@ jobs:
           JOB_ID: ${{ github.event.client_payload.job_id }}
           VERSION_ID: ${{ github.event.client_payload.version_id }}
           OBJECT_PATH: ${{ github.event.client_payload.object_path }}
+          # Watchdog trips before the runner's 30-min hard kill, so the job row is
+          # always left in a terminal state ('failed') rather than stuck at 'parsing'.
+          INGEST_WATCHDOG_SECONDS: "1500"
         run: >
           python -m ingest.run
           --job-id "$JOB_ID"

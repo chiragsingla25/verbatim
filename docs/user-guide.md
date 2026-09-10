@@ -99,7 +99,9 @@ scores, compare two manuals or editions, or answer anything not written in the v
 1. **+ Upload manual** from the library.
 2. Enter the instrument name, the version's title / edition / year, the licence class, and tick
    the attestation that you have the right to store the file.
-3. Upload the PDF. Parsing (text, tables, search index) takes about **2–3 minutes**.
+3. Upload the PDF. Parsing (text, tables, search index) usually takes **2–4 minutes**, but the
+   first run after a quiet spell re-downloads the parser models and can take **10–15**. The
+   review screen shows progress and a link to the running job.
 4. The version sits at **pending** until a contributor or admin reviews the extracted tables
    against the source and **publishes** it. Full steps are in
    **`approve-manual-guide.pdf`**.

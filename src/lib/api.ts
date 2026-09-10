@@ -252,7 +252,14 @@ export type ReviewData = {
     source_object_path: string | null
     instrument: { name: string } | null
   }
-  job: { state: string; ocr_quality: number | null; flags: string[]; error: string | null } | null
+  job: {
+    state: string
+    ocr_quality: number | null
+    flags: string[]
+    error: string | null
+    startedAt: string
+    updatedAt: string
+  } | null
   tableChunks: { id: string; page: number | null; content: string; table_ref: string | null }[]
   totalChunks: number
   sourceUrl: string | null
@@ -270,7 +277,7 @@ export async function getReviewData(versionId: string): Promise<ReviewData> {
 
   const { data: jobRow } = await supabase
     .from('ingest_jobs')
-    .select('state, ocr_quality, flags, error')
+    .select('state, ocr_quality, flags, error, created_at, updated_at')
     .eq('version_id', versionId)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -303,6 +310,8 @@ export async function getReviewData(versionId: string): Promise<ReviewData> {
           ocr_quality: (jobRow as { ocr_quality: number | null }).ocr_quality,
           flags: ((jobRow as { flags: unknown }).flags as string[]) ?? [],
           error: (jobRow as { error: string | null }).error,
+          startedAt: (jobRow as { created_at: string }).created_at,
+          updatedAt: (jobRow as { updated_at: string }).updated_at,
         }
       : null,
     tableChunks: (tables ?? []) as unknown as ReviewData['tableChunks'],
