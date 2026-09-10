@@ -333,6 +333,41 @@ export async function rejectVersion(versionId: string, reason: string): Promise<
   if (error) throw new Error(error.message)
 }
 
+// ── Upload-lifecycle recovery (v1.1.1) — creator-or-admin, pending versions ──
+// Hard-delete a pending version. Supabase forbids removing storage.objects rows from
+// SQL, so the source object goes through the Storage API here first (RLS:
+// manuals_delete_contrib), then the RPC drops the row + cascades document_chunks /
+// ingest_jobs + writes the audit entry.
+export async function deleteVersion(versionId: string): Promise<void> {
+  const rm = await supabase.storage.from('manuals').remove([`v/${versionId}/source.pdf`])
+  if (rm.error && !/not found/i.test(rm.error.message)) throw new Error(rm.error.message)
+  const { error } = await supabase.rpc('delete_manual_version', { p_version_id: versionId })
+  if (error) throw new Error(error.message)
+}
+
+// Re-run ingestion on the already-uploaded file (retry), or after a Replace upload.
+export async function retryIngest(versionId: string): Promise<{ jobId: string }> {
+  const { data, error } = await supabase.functions.invoke('ingest-trigger', {
+    body: { versionId },
+  })
+  if (error) throw new Error(error.message)
+  const jobId = (data as { job_id?: string } | null)?.job_id
+  if (!jobId) throw new Error('ingest-trigger returned no job id')
+  return { jobId }
+}
+
+// A short-TTL URL for overwriting manuals/v/<id>/source.pdf (Replace the source PDF).
+export async function reuploadSourceUrl(
+  versionId: string,
+): Promise<{ url: string; path: string; token: string }> {
+  const path = `v/${versionId}/source.pdf`
+  const { data, error } = await supabase.storage
+    .from('manuals')
+    .createSignedUploadUrl(path, { upsert: true })
+  if (error) throw new Error(error.message)
+  return { url: data.signedUrl, path, token: data.token }
+}
+
 // ── Manual lifecycle (v1.1 Phase 2) — admin only, enforced in the RPC ───────
 export async function archiveVersion(versionId: string): Promise<void> {
   const { error } = await supabase.rpc('archive_manual_version', { p_version_id: versionId })
