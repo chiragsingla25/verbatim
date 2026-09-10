@@ -51,7 +51,8 @@ jobs:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
-        # exit 2 == LLM daily quota exhausted (pipeline healthy) -> warn, don't block the PR.
+        # exit 2 == LLM daily quota exhausted (pipeline healthy) -> warn, don't block.
+        # exit 3 == /ask returned 401/403 -> real config break (bad secrets), fail loudly.
         run: |
           set +e
           python evals/run_evals.py --quick
@@ -59,5 +60,8 @@ jobs:
           if [ "$ec" = "2" ]; then
             echo "::warning::quick evals skipped — LLM daily quota exhausted (pipeline is healthy)"
             exit 0
+          fi
+          if [ "$ec" = "3" ]; then
+            echo "::error::quick evals could not run — /ask auth rejected; check SUPABASE_* secrets"
           fi
           exit "$ec"

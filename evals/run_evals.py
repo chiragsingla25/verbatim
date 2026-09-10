@@ -25,6 +25,14 @@ from abstention import score_abstention
 from cross_version_leak import score_cross_version_leak
 
 
+def _cant_run(e: Exception) -> int:
+    print(f"\nEVALS COULD NOT RUN — {e}")
+    print("/ask or the eval-user token grant returned 401/403: check SUPABASE_URL /")
+    print("SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY / the eval user credentials.")
+    print("Not a pipeline regression.")
+    return 3
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         return _run(argv)
@@ -33,12 +41,13 @@ def main(argv: list[str] | None = None) -> int:
         print("The /ask pipeline is deployed and healthy; the LLM endpoint is out of daily")
         print("tokens. Re-run after the quota resets, or point LLM_* at a funded endpoint.")
         return 2
-    except (_Terminal, httpx.HTTPStatusError) as e:
-        print(f"\nEVALS COULD NOT RUN — {e}")
-        print("/ask or the eval-user token grant rejected auth: check SUPABASE_URL /")
-        print("SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY / the eval user credentials.")
-        print("Not a pipeline regression.")
-        return 3
+    except _Terminal as e:
+        return _cant_run(e)
+    except httpx.HTTPStatusError as e:
+        # only auth failures — a 5xx or other HTTP error is a real problem, let it surface
+        if e.response.status_code not in (401, 403):
+            raise
+        return _cant_run(e)
 
 
 def _run(argv: list[str] | None = None) -> int:

@@ -144,7 +144,8 @@ export type LibraryVersion = {
   instrument: { name: string; slug: string } | null
   // The newer version that supersedes this one (its supersedes_id points here), if visible.
   supersededBy: VersionRef | null
-  // Latest ingest job state — for the "Your uploads in progress" recovery affordances.
+  // Latest ingest job state — only populated for the caller's own non-active uploads
+  // ("Your uploads in progress"); always null for active rows.
   ingestState: string | null
 }
 
