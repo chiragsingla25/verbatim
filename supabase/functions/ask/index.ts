@@ -3,6 +3,7 @@
 // Needs LLM_BASE_URL / LLM_API_KEY / LLM_MODEL via `supabase secrets`. SUPABASE_URL /
 // SUPABASE_ANON_KEY are auto-injected. Embeddings use the built-in gte-small session.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { CORS, jsonResponse, UUID_RE } from '../_shared/http.ts'
 import { LlmQuotaError, llmChat } from '../_shared/llm.ts'
 import type { RetrievedChunk } from '../_shared/prompt.ts'
 import { ask, type QueryLogRow } from './pipeline.ts'
@@ -12,18 +13,7 @@ declare const Supabase: {
   ai: { Session: new (model: string) => { run(input: string, opts?: Record<string, unknown>): Promise<number[]> } }
 }
 
-const CORS = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-headers': 'authorization, apikey, content-type',
-  'access-control-allow-methods': 'POST, OPTIONS',
-}
-
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json', ...CORS },
-  })
-}
+const json = (status: number, body: unknown) => jsonResponse(status, body, { cors: true })
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
@@ -57,7 +47,7 @@ Deno.serve(async (req) => {
   }
   const versionId = body.versionId
   const question = body.question
-  if (typeof versionId !== 'string' || !/^[0-9a-fA-F-]{36}$/.test(versionId)) {
+  if (typeof versionId !== 'string' || !UUID_RE.test(versionId)) {
     return json(400, { error: 'versionId must be a uuid' })
   }
   if (typeof question !== 'string' || question.trim().length === 0) {

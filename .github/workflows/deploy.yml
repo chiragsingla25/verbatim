@@ -30,7 +30,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      # Build the exact commit that passed CI, not whatever main points at now (a
+      # back-to-back push could otherwise deploy an untested HEAD).
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

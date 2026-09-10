@@ -5,7 +5,13 @@
 // Supabase Storage webhook (pg_net), not a signed-in user, so it authenticates with a shared
 // secret header (x-webhook-secret == STORAGE_WEBHOOK_SECRET).
 
-const OBJECT_RE = /^v\/([0-9a-fA-F-]{36})\/source\.pdf$/
+import { jsonResponse } from '../_shared/http.ts'
+
+const json = (status: number, body: unknown) => jsonResponse(status, body)
+
+// v1.1.2: tightened from the loose [0-9a-fA-F-]{36} while consolidating the json helper.
+const OBJECT_RE =
+  /^v\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/source\.pdf$/i
 
 type StorageWebhookPayload = {
   type: string
@@ -101,11 +107,4 @@ export function buildHandler(deps: Deps) {
 
     return json(200, { job_id: job.id, version_id: versionId, dispatched: true })
   }
-}
-
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
 }

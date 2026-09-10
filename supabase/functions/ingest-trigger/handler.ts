@@ -6,13 +6,9 @@
 // is a real user, not the Storage webhook. Fires the same `ingest` workflow as
 // ingest-dispatch via GitHub repository_dispatch.
 
-const VERSION_ID_RE = /^[0-9a-fA-F-]{36}$/
+import { CORS, jsonResponse, UUID_RE } from '../_shared/http.ts'
 
-const CORS = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-headers': 'authorization, apikey, content-type, x-client-info',
-  'access-control-allow-methods': 'POST, OPTIONS',
-}
+const json = (status: number, body: unknown) => jsonResponse(status, body, { cors: true })
 
 type QueryResult<T> = Promise<{ data: T | null; error: { message: string } | null }>
 
@@ -57,7 +53,7 @@ export function buildHandler(deps: Deps) {
       return json(400, { error: 'invalid JSON body' })
     }
     const versionId = body.versionId
-    if (typeof versionId !== 'string' || !VERSION_ID_RE.test(versionId)) {
+    if (typeof versionId !== 'string' || !UUID_RE.test(versionId)) {
       return json(400, { error: 'versionId must be a uuid' })
     }
 
@@ -114,11 +110,4 @@ export function buildHandler(deps: Deps) {
 
     return json(200, { job_id: job.id, version_id: versionId, dispatched: true })
   }
-}
-
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json', ...CORS },
-  })
 }

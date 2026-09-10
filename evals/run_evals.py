@@ -10,6 +10,7 @@ Exit codes:
   0  passed
   1  ran and failed (a leak, low abstention accuracy, or RAGAS below threshold)
   2  could not run (LLM daily quota exhausted) — CI treats this as a non-blocking warning
+  3  could not run (/ask rejected auth — bad SUPABASE_* / eval-user creds)
 """
 
 from __future__ import annotations
@@ -17,7 +18,9 @@ from __future__ import annotations
 import argparse
 import sys
 
-from common import AskResponse, QuotaExhausted, call_ask, load_config, load_golden
+import httpx
+
+from common import AskResponse, QuotaExhausted, _Terminal, call_ask, load_config, load_golden
 from abstention import score_abstention
 from cross_version_leak import score_cross_version_leak
 
@@ -30,6 +33,12 @@ def main(argv: list[str] | None = None) -> int:
         print("The /ask pipeline is deployed and healthy; the LLM endpoint is out of daily")
         print("tokens. Re-run after the quota resets, or point LLM_* at a funded endpoint.")
         return 2
+    except (_Terminal, httpx.HTTPStatusError) as e:
+        print(f"\nEVALS COULD NOT RUN — {e}")
+        print("/ask or the eval-user token grant rejected auth: check SUPABASE_URL /")
+        print("SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY / the eval user credentials.")
+        print("Not a pipeline regression.")
+        return 3
 
 
 def _run(argv: list[str] | None = None) -> int:

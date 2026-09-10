@@ -216,14 +216,13 @@ type RawVersionRow = {
   status: LibraryVersion['status']
   supersedes_id: string | null
   instrument: { name: string; slug: string } | null
-  ingest_jobs: { state: string; created_at: string }[] | null
 }
 
 export async function listVisibleVersions(): Promise<LibraryVersion[]> {
   const { data, error } = await supabase
     .from('manual_versions')
     .select(
-      'id, title, edition, year, publisher, status, supersedes_id, instrument:instruments(name, slug), ingest_jobs(state, created_at)',
+      'id, title, edition, year, publisher, status, supersedes_id, instrument:instruments(name, slug)',
     )
     .order('status')
     .order('title')
@@ -235,23 +234,34 @@ export async function listVisibleVersions(): Promise<LibraryVersion[]> {
   for (const r of rows) {
     if (r.supersedes_id) supersederOf.set(r.supersedes_id, { id: r.id, title: r.title })
   }
-  return rows.map((r) => {
-    const latestJob = (r.ingest_jobs ?? [])
-      .slice()
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
-    return {
-      id: r.id,
-      title: r.title,
-      edition: r.edition,
-      year: r.year,
-      publisher: r.publisher,
-      status: r.status,
-      supersedesId: r.supersedes_id,
-      instrument: r.instrument,
-      supersededBy: supersederOf.get(r.id) ?? null,
-      ingestState: latestJob?.state ?? null,
+
+  // ingestState only matters for the caller's own non-active uploads — fetch it with one
+  // scoped query rather than embedding job history on every (mostly active) row.
+  const mineIds = rows.filter((r) => r.status !== 'active').map((r) => r.id)
+  const latestState = new Map<string, string>()
+  if (mineIds.length > 0) {
+    const { data: jobs } = await supabase
+      .from('ingest_jobs')
+      .select('version_id, state, created_at')
+      .in('version_id', mineIds)
+      .order('created_at', { ascending: false })
+    for (const j of (jobs ?? []) as { version_id: string; state: string }[]) {
+      if (!latestState.has(j.version_id)) latestState.set(j.version_id, j.state)
     }
-  })
+  }
+
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    edition: r.edition,
+    year: r.year,
+    publisher: r.publisher,
+    status: r.status,
+    supersedesId: r.supersedes_id,
+    instrument: r.instrument,
+    supersededBy: supersederOf.get(r.id) ?? null,
+    ingestState: latestState.get(r.id) ?? null,
+  }))
 }
 
 export type ReviewData = {
