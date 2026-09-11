@@ -313,9 +313,12 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
   }
 
   // 1. retrieve (RLS + version filter live in match_chunks) — uses the condensed query.
-  //    In parallel, fetch the deterministic catalog facts for this version.
-  const [qvec, facts] = await Promise.all([deps.embed(retrievalQuery), deps.getFacts(versionId)])
+  //    Kick off the facts RPC without blocking retrieval on it — matchChunks only needs
+  //    qvec, so it starts as soon as embed resolves instead of waiting on both.
+  const factsPromise = deps.getFacts(versionId)
+  const qvec = await deps.embed(retrievalQuery)
   const hits = await deps.matchChunks(versionId, qvec, RETRIEVE_K)
+  const facts = await factsPromise
   const retrieved = hits.map((h) => ({ chunkId: h.chunkId, page: h.page, score: h.score }))
   // __facts__ is not a retrieved chunk (kept out of `retrieved` / the query_log), but it
   // is a citable source in the answer + verify context. Proceed if there's anything to
