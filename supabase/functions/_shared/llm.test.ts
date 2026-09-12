@@ -1,7 +1,31 @@
 // deno test supabase/functions/_shared/llm.test.ts
 import { assertEquals, assertRejects } from '@std/assert'
-import { createChatWithFallback, LlmQuotaError } from './llm.ts'
+import { createChatWithFallback, isDailyQuotaBody, LlmQuotaError } from './llm.ts'
 import type { ModelOption } from './schema.ts'
+
+// Captured live from OpenRouter this session (2026-09-12) — the actual daily-cap 429 body,
+// not a guessed shape. A prior version of isDailyQuotaBody's pattern looked plausible but
+// never matched this real text (hyphenated "per-day", no spaced "per day" anywhere), so
+// every daily-cap 429 fell through to the generic retry branch and wasted ~25s of backoff
+// per call before finally giving up. This pins the fix against the real provider response.
+const REAL_OPENROUTER_DAILY_CAP_BODY =
+  '{"error":{"message":"Rate limit exceeded: free-models-per-day-high-balance. ","code":429,' +
+  '"metadata":{"headers":{"X-RateLimit-Limit":"1000","X-RateLimit-Remaining":"0",' +
+  '"X-RateLimit-Reset":"1789257600000"},"limit_source":"openrouter_free_tier_daily",' +
+  '"remedy_hint":"Wait for the daily reset","provider_name":null}},"user_id":"user_x"}'
+
+Deno.test('isDailyQuotaBody: matches the real OpenRouter daily-cap response', () => {
+  assertEquals(isDailyQuotaBody(REAL_OPENROUTER_DAILY_CAP_BODY), true)
+})
+
+Deno.test('isDailyQuotaBody: matches Groq-style TPD/RPD wording too', () => {
+  assertEquals(isDailyQuotaBody('Rate limit reached for TPD (tokens per day).'), true)
+  assertEquals(isDailyQuotaBody('You have exceeded your RPD quota.'), true)
+})
+
+Deno.test('isDailyQuotaBody: does not false-positive on a plain burst 429', () => {
+  assertEquals(isDailyQuotaBody('Rate limit exceeded. Please retry after 2 seconds.'), false)
+})
 
 const MODELS: ModelOption[] = [
   { id: 'free', label: 'Free', llmModel: 'vendor/free-model', free: true },

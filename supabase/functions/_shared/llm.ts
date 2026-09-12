@@ -23,6 +23,21 @@ export class LlmQuotaError extends Error {
 // primary triggers the v1.5 fallback instead of tying up the ~150s Edge Function wall clock.
 const REQUEST_TIMEOUT_MS = 30_000
 
+// A 429 body that means "terminal for hours, don't bother retrying" rather than "clears in
+// seconds." Matched against OpenRouter's REAL daily-cap response (verified live): the
+// message is "free-models-per-day-high-balance" (hyphenated, not "per day") and
+// "limit_source":"openrouter_free_tier_daily" — a spaced-word-only pattern never matches
+// either, and OpenRouter sends no retry-after header for this case at all, so that gap left
+// every daily-cap 429 falling through to the generic retry branch, wasting up to ~25s of
+// backoff per call before finally giving up. Groq (this app's other OpenAI-compatible
+// option) does use "TPD"/"RPD"/spaced "per day" wording, so those stay in the pattern too.
+// Exported so it's covered by a real regression test — this exact bug (a regex that looks
+// right but doesn't match the real provider text) is exactly what a test catches and a
+// glance at the code doesn't.
+export function isDailyQuotaBody(body: string): boolean {
+  return /per[\s-]day|tpd|rpd|daily|"remaining"\s*:\s*"?0/i.test(body)
+}
+
 export async function llmChat(model: string, system: string, user: string): Promise<string> {
   const base = Deno.env.get('LLM_BASE_URL')?.replace(/\/$/, '')
   const key = Deno.env.get('LLM_API_KEY')
@@ -50,8 +65,7 @@ export async function llmChat(model: string, system: string, user: string): Prom
     if (res.status === 429) {
       const body = (await res.text()).slice(0, 500)
       const retryAfter = Number(res.headers.get('retry-after'))
-      const isDaily = /per day|TPD|tokens per day|requests per day|RPD/i.test(body)
-      if (isDaily || retryAfter > MAX_BACKOFF_S) {
+      if (isDailyQuotaBody(body) || retryAfter > MAX_BACKOFF_S) {
         throw new LlmQuotaError(`LLM daily quota exhausted: ${body}`)
       }
       if (attempt < 2) {

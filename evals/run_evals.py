@@ -96,18 +96,30 @@ def _run(argv: list[str] | None = None) -> int:
         failed = True
 
     # ── RAGAS (full only) ────────────────────────────────────────────────
+    # Caught locally (not left to main()'s top-level QuotaExhausted handler): a total judge
+    # outage shouldn't discard the abstention/cross-version/conversational results already
+    # gathered above, or force the whole run's exit code to "couldn't run" when everything
+    # else genuinely passed. RAGAS alone degrades to "skipped, not blocking" — the same
+    # non-blocking treatment /ask's own quota exhaustion already gets, just scoped to this
+    # one section instead of the entire run.
     if not args.quick:
         from ragas_suite import run_ragas  # lazy: heavy deps
 
-        ragas_scores = run_ragas(cfg, cases, responses)
         print("\n== RAGAS ==")
-        for metric, score in ragas_scores.items():
-            print(f"  {metric:34} {score:.3f}")
-        mean = sum(ragas_scores.values()) / len(ragas_scores) if ragas_scores else 0.0
-        print(f"  {'mean':34} {mean:.3f}  (threshold {args.fail_under})")
-        if mean < args.fail_under:
-            print(f"  >>> RAGAS mean {mean:.3f} < {args.fail_under} — blocking")
-            failed = True
+        try:
+            ragas_scores = run_ragas(cfg, cases, responses)
+        except QuotaExhausted as e:
+            print(f"  SKIPPED — {e}")
+            print("  (the LLM judge is out of quota; not counted against this run)")
+            ragas_scores = None
+        if ragas_scores is not None:
+            for metric, score in ragas_scores.items():
+                print(f"  {metric:34} {score:.3f}")
+            mean = sum(ragas_scores.values()) / len(ragas_scores) if ragas_scores else 0.0
+            print(f"  {'mean':34} {mean:.3f}  (threshold {args.fail_under})")
+            if mean < args.fail_under:
+                print(f"  >>> RAGAS mean {mean:.3f} < {args.fail_under} — blocking")
+                failed = True
 
     # ── conversational (v1.2, always blocking — grounding must survive history) ──
     conv_cases = load_conversational()
