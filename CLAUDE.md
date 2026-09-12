@@ -66,7 +66,7 @@ follow-up + conversation (bounded recent turns + a rolling per-session summary)
 | Server logic | Supabase **Edge Functions** — `/ask` (pipeline) and `/ingest-dispatch` (Storage webhook → GitHub API) | hold the LLM key; ~150 s wall clock is ample for the pipeline |
 | PDF parsing | **Docling** in a **GitHub Actions** workflow | OSS (MIT); no page caps; triggered via `repository_dispatch` from `/ingest-dispatch` |
 | Embeddings | **`gte-small`** (384-dim) — Supabase built-in model at query time; `thenlper/gte-small` via `sentence-transformers` in the Action at ingest | same weights both sides → vectors match; 384-dim keeps DB small |
-| Answer + verify LLM | **any OpenAI-compatible endpoint** via `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`. Using **OpenRouter** (`inclusionai/ling-3.0-flash-sante:free` — health-domain-tuned, ~2–10 s/call). Swappable to Groq, or local **Ollama** for a fully-OSS deploy | temperature 0. **OpenRouter free models are capped at 20 req/min AND 1,000 req/day account-wide** (this key has crossed the $10-lifetime-purchase threshold that unlocks 1,000/day — accounts that haven't are capped at 50/day; failed/retried requests still count against the cap; resets ~00:00 UTC). Each `/ask` call spends 2 LLM calls (answer + verify), 3 for a follow-up turn (+ condense); a full `run_evals.py` spends ~100+ calls (RAGAS judging alone is ~38). Budget interactive testing and eval runs against this — see "Before spending LLM quota" below. (Groq's free 200k TPD ≈ 15–25 answers/day proved too tight — see the spec's Phase 2 deviations.) |
+| Answer + verify LLM | **any OpenAI-compatible endpoint** via `LLM_BASE_URL` / `LLM_API_KEY`, model resolved per-call from `MODEL_REGISTRY` (v1.5) — not an `LLM_MODEL` env var. Primary: **OpenRouter** free `inclusionai/ling-3.0-flash-sante:free` (health-domain-tuned, ~2–10 s/call); falls back to paid `qwen/qwen3.7-flash` on any failure (`createChatWithFallback`, `_shared/llm.ts`), whole-turn sticky. Swappable to Groq, or local **Ollama** | temperature 0. **OpenRouter free models are capped at 20 req/min AND 1,000 req/day account-wide** (this key has crossed the $10-lifetime-purchase threshold that unlocks 1,000/day — accounts that haven't are capped at 50/day; failed/retried requests still count against the cap; resets ~00:00 UTC). Each `/ask` call spends 2 LLM calls (answer + verify), 3 for a follow-up turn (+ condense). Budget interactive testing against this — see "Before spending LLM quota" below. (Groq's free 200k TPD ≈ 15–25 answers/day proved too tight — see the spec's Phase 2 deviations.) |
 | Logging | **`query_log`** table (chunk ids, answer, verify result, latency) | the raw material for later eval + agentic work |
 | Observability | Langfuse Cloud free tier — **optional**, add later if the table isn't enough | SDK is MIT; not a v1 dependency |
 | Evals | RAGAS + custom abstention & cross-version-leak checks, `evals/`, run in CI | |
@@ -107,12 +107,14 @@ by reopening this phase list.
 - Secrets — three locations, never a committed file:
   - **`.env.local`** (SPA): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_APP_BASE` — all public.
   - **`supabase secrets set`** (Edge Functions): `LLM_BASE_URL` (`https://openrouter.ai/api/v1`),
-    `LLM_API_KEY` (`sk-or-v1-…`), `LLM_MODEL` (`inclusionai/ling-3.0-flash-sante:free`), `STORAGE_WEBHOOK_SECRET`
-    (`openssl rand -hex 32`), `GITHUB_DISPATCH_TOKEN` (fine-grained PAT, Contents: write),
+    `LLM_API_KEY` (`sk-or-v1-…`), `STORAGE_WEBHOOK_SECRET` (`openssl rand -hex 32`),
+    `GITHUB_DISPATCH_TOKEN` (fine-grained PAT, Contents: write),
     `GITHUB_DISPATCH_REPO` (`<user>/verbatim`). `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` /
-    `SUPABASE_ANON_KEY` are auto-injected.
+    `SUPABASE_ANON_KEY` are auto-injected. **No `LLM_MODEL` secret** (v1.5) — the model is
+    resolved per-call from `MODEL_REGISTRY` (`_shared/schema.ts`), not read from env.
   - **GitHub Actions repo secrets**: `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` for `ingest.yml`;
-    `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL` for `ci.yml` (Phase 2 evals).
+    `LLM_BASE_URL` + `LLM_API_KEY` for `ci.yml` / `evals-nightly.yml` (evals resolve their own
+    judge/fallback model the same registry-driven way — see `evals/ragas_suite.py`).
 - **Embedding model must be `gte-small` on both sides** — Supabase's built-in at query time and
   `thenlper/gte-small` at ingest. Changing it means re-embedding the whole corpus.
 - Every answer is `grounded` (≥1 citation to a chunk in the requested `versionId`, or to the
@@ -128,14 +130,29 @@ by reopening this phase list.
 ## Before spending LLM quota
 
 OpenRouter's free tier is the tightest resource in this project — 1,000 req/day account-wide
-(20/min), shared by every interactive `/ask` call, every `run_evals.py` invocation, and both
-CI eval jobs on every push, plus the nightly scheduled run. **Claude: before triggering
-anything that calls the project's LLM (a live `/ask`, `run_evals.py` in any mode, a manual
-OpenRouter call, or pushing a commit that fires CI's eval jobs), ask the user first and state
-the expected call count** — roughly: 2 per single-turn `/ask`, 3 per follow-up turn, ~30 for
-`--quick`, ~100+ for a full run (RAGAS judging alone is ~38 calls). Do not assume quota is
-available; check `X-RateLimit-Remaining` if in doubt. This does not apply to Claude's own
-usage — only to this project's OpenRouter-backed pipeline.
+(20/min), shared by every interactive `/ask` call and every `run_evals.py` invocation.
+**Claude: before triggering anything that calls the project's LLM (a live `/ask`,
+`run_evals.py` in any mode, a manual OpenRouter call), ask the user first and state the
+expected call count.** Do not assume quota is available; check `X-RateLimit-Remaining` if in
+doubt. This does not apply to Claude's own usage — only to this project's OpenRouter-backed
+pipeline.
+
+**What actually runs automatically vs. on demand (post-2026-09-12 CI redesign):**
+
+- Every PR and every push to `main` (`ci.yml`'s `smoke-evals` job): **`run_evals.py
+  --smoke`, exactly 2 `/ask` calls** — one grounded case, one cross-version-leak case. This
+  is the only eval spend that fires without anyone asking for it.
+- `--quick`: ~30 calls (abstention cases + the full conversational section — no RAGAS). Not
+  wired into any workflow; run it yourself when you want more than the smoke check but not
+  the full suite.
+- **The full suite (all 26 golden cases + RAGAS + conversational, ~100+ calls, 25-30 min) is
+  on-demand only** — `evals-nightly.yml`'s daily 07:00 UTC cron, or manually via
+  `gh workflow run evals-nightly.yml` / the Actions tab, before or after a real pipeline
+  change. It no longer runs on every push — it used to (`ci.yml`'s old `full-evals` job),
+  which meant a pure-SPA commit paid for and waited on the full suite, and RAGAS's noisy
+  `llm_context_precision_without_reference` metric (has scored 0.451-0.609 across multiple
+  runs regardless of judge model) could block an unrelated deploy.
+- Each `/ask` call: 2 LLM calls (answer + verify), 3 for a follow-up turn (+ condense).
 
 ## Available resources
 

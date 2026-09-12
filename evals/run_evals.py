@@ -1,6 +1,7 @@
 """Eval orchestrator.
 
-    python evals/run_evals.py --quick            # PR gate: abstention + cross-version-leak
+    python evals/run_evals.py --smoke            # CI gate on every PR/push: 2 /ask calls
+    python evals/run_evals.py --quick            # abstention + cross-version-leak + conversational
     python evals/run_evals.py                    # full: + RAGAS faithfulness / context-precision
     python evals/run_evals.py --fail-under 0.70  # RAGAS mean threshold (full only)
 
@@ -24,6 +25,16 @@ from common import AskResponse, QuotaExhausted, _Terminal, call_ask, load_config
 from abstention import score_abstention
 from conversational import load_conversational, run_conversational
 from cross_version_leak import score_cross_version_leak
+
+# --smoke: the automatic gate on every PR/push (see ci.yml). Exactly 2 /ask calls, picked
+# for the two failure modes worth catching on EVERY change without spending real quota:
+# one representative grounded case ("the pipeline answers at all") and one cross-version-
+# leak case ("no version's content leaks into another's answer" — the single worst failure
+# mode this app can have). Named explicitly rather than picked by dataset order, so the
+# choice stays stable if golden_dataset.jsonl is reordered or edited later. No RAGAS, no
+# conversational, no full 26-case sweep — those live in evals-nightly.yml (cron + manual
+# `gh workflow run evals-nightly.yml`), not on every push.
+SMOKE_CASE_IDS = {"phq9-mod-severe", "pss-vs-audit-leak"}
 
 
 def _cant_run(e: Exception) -> int:
@@ -53,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="run_evals.py")
+    ap.add_argument("--smoke", action="store_true", help="CI gate: 2 hand-picked cases, no RAGAS/conversational")
     ap.add_argument("--quick", action="store_true", help="skip RAGAS + only score abstention cases")
     ap.add_argument("--fail-under", type=float, default=0.70, help="RAGAS mean threshold (full run)")
     ap.add_argument("--abstain-fail-under", type=float, default=0.90, help="abstention accuracy threshold")
@@ -61,12 +73,21 @@ def _run(argv: list[str] | None = None) -> int:
     cfg = load_config()
     cases = load_golden()
 
-    # quick mode scores only the abstention cases (fast, no verify call); full scores all.
-    scored = [c for c in cases if c.should_abstain] if args.quick else cases
+    if args.smoke:
+        scored = [c for c in cases if c.id in SMOKE_CASE_IDS]
+        missing = SMOKE_CASE_IDS - {c.id for c in scored}
+        if missing:
+            raise SystemExit(f"--smoke case id(s) not found in golden_dataset.jsonl: {sorted(missing)}")
+    elif args.quick:
+        # quick mode scores only the abstention cases (fast, no verify call); full scores all.
+        scored = [c for c in cases if c.should_abstain]
+    else:
+        scored = cases
+    mode = ' [smoke]' if args.smoke else (' [quick]' if args.quick else '')
     print(f"loaded {len(cases)} golden cases; scoring {len(scored)} "
           f"({sum(c.should_abstain for c in scored)} abstain, "
           f"{sum(c.is_cross_version_leak for c in scored)} cross-version)"
-          f"{' [quick]' if args.quick else ''}")
+          f"{mode}")
 
     # ── the only place /ask is called ──────────────────────────────────────
     responses: dict[str, AskResponse] = {}
@@ -102,7 +123,7 @@ def _run(argv: list[str] | None = None) -> int:
     # else genuinely passed. RAGAS alone degrades to "skipped, not blocking" — the same
     # non-blocking treatment /ask's own quota exhaustion already gets, just scoped to this
     # one section instead of the entire run.
-    if not args.quick:
+    if not args.quick and not args.smoke:
         from ragas_suite import run_ragas  # lazy: heavy deps
 
         print("\n== RAGAS ==")
@@ -122,7 +143,9 @@ def _run(argv: list[str] | None = None) -> int:
                 failed = True
 
     # ── conversational (v1.2, always blocking — grounding must survive history) ──
-    conv_cases = load_conversational()
+    # Skipped entirely in --smoke: 21 sequential /ask turns across 6 cases is exactly the
+    # cost --smoke exists to avoid on every push/PR. Still runs for --quick and full.
+    conv_cases = [] if args.smoke else load_conversational()
     if conv_cases:
         conv_rows, conv_ok = run_conversational(cfg, conv_cases)
         print(f"\n== conversational ({len(conv_rows)} multi-turn cases) ==")

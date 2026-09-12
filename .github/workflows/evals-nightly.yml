@@ -1,11 +1,16 @@
 name: evals-nightly
 
-# The full eval suite: cross-version-leak + abstention accuracy + RAGAS faithfulness /
-# context-precision. Many LLM calls — runs on a schedule (not per-PR) to stay inside the
-# Groq free-tier limits. Also runnable on demand.
+# THE full eval suite: cross-version-leak + abstention accuracy over all 26 golden cases +
+# 6 conversational multi-turn cases + RAGAS faithfulness/context-precision (~100+ real LLM
+# calls, 25-30 min). This is now the ONLY place it runs — ci.yml's automatic gate
+# (smoke-evals) is deliberately just 2 calls, so this workflow is what actually exercises
+# RAGAS and the full golden set. Runs on the daily cron below, or on demand any time before/
+# after a real pipeline change: `gh workflow run evals-nightly.yml` (optionally
+# `-f fail_under=0.6` to override the RAGAS threshold) or via the Actions tab. See
+# CLAUDE.md's "Before spending LLM quota" section before triggering it manually.
 #
 # Required repo secrets: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
-# LLM_BASE_URL, LLM_API_KEY, LLM_MODEL.
+# LLM_BASE_URL, LLM_API_KEY.
 
 on:
   schedule:
@@ -35,7 +40,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_MODEL: ${{ secrets.LLM_MODEL }}
         # exit 2 == LLM daily quota exhausted -> the nightly is inconclusive, not failed.
         run: |
           set +e
