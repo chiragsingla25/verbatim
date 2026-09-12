@@ -254,6 +254,24 @@ def run(job_id: str, version_id: str, object_path: str) -> None:
         if n_pages == 0:
             fail_job(conn, job_id, "PDF has no pages", ["empty_pdf"])
             sys.exit(1)
+        # A CPU-only, single-runner Docling pass (OCR + table-structure recognition) has a
+        # real, observed ceiling: the largest sample manual (AUDIT, 41 pages) finishes in
+        # ~2 minutes; a 247-page document ran past the 1500s watchdog budget without
+        # finishing at all. Rather than spend 25 minutes discovering that on every
+        # oversized upload, reject up front with a clear reason. 100 is deliberately well
+        # above today's largest real manual and well below the failing case, not a tight
+        # fit to either number.
+        MAX_PAGES = 100
+        if n_pages > MAX_PAGES:
+            fail_job(
+                conn,
+                job_id,
+                f"{n_pages} pages exceeds this pipeline's {MAX_PAGES}-page limit for "
+                "CPU-only ingestion — split it into smaller sections and upload each "
+                "separately, or ask an admin about a larger ingestion run",
+                ["too_many_pages"],
+            )
+            sys.exit(1)
         if not has_text and not has_images:
             fail_job(
                 conn,
