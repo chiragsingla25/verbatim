@@ -3,10 +3,13 @@ name: ci
 # PR gate. Fast: unit tests (SPA + Edge Functions) + the quick eval check
 # (abstention accuracy + cross-version-leak, ~25 /ask calls, no RAGAS).
 #
-# On merge to main a third job (full-evals) also runs the FULL suite — RAGAS +
-# all 24 golden + 6 conversational + cross-version. deploy.yml gates on this whole
-# workflow succeeding, so a false-abstain / groundedness regression on an
-# *answerable* case blocks the deploy (the --quick set never scores those).
+# On merge to main, `quick-evals` is SKIPPED (see its `if:` below) and a separate job
+# (full-evals) runs the FULL suite instead — RAGAS + all 24 golden + 6 conversational +
+# cross-version. full-evals is a strict superset of what quick-evals checks, so running
+# both on the same push only doubled LLM-quota spend for no extra coverage (OpenRouter's
+# free tier is 1,000 req/day account-wide — see CLAUDE.md "Before spending LLM quota").
+# deploy.yml gates on this whole workflow succeeding, so a false-abstain / groundedness
+# regression on an *answerable* case blocks the deploy.
 # evals-nightly.yml still runs the full suite on a schedule to catch live-model drift.
 #
 # Required repo secrets: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
@@ -38,6 +41,10 @@ jobs:
       - run: pnpm test:functions
 
   quick-evals:
+    # PR-only. On a push to main, full-evals runs instead and covers everything this
+    # job checks plus more (RAGAS, all golden cases, conversational) — running both on
+    # the same push would just double LLM-quota spend with zero extra coverage.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 25 # /ask calls hit Groq free-tier backoff; ~20 calls
     steps:

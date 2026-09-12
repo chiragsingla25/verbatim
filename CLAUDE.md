@@ -66,7 +66,7 @@ follow-up + conversation (bounded recent turns + a rolling per-session summary)
 | Server logic | Supabase **Edge Functions** — `/ask` (pipeline) and `/ingest-dispatch` (Storage webhook → GitHub API) | hold the LLM key; ~150 s wall clock is ample for the pipeline |
 | PDF parsing | **Docling** in a **GitHub Actions** workflow | OSS (MIT); no page caps; triggered via `repository_dispatch` from `/ingest-dispatch` |
 | Embeddings | **`gte-small`** (384-dim) — Supabase built-in model at query time; `thenlper/gte-small` via `sentence-transformers` in the Action at ingest | same weights both sides → vectors match; 384-dim keeps DB small |
-| Answer + verify LLM | **any OpenAI-compatible endpoint** via `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`. Using **OpenRouter** (`inclusionai/ling-3.0-flash-sante:free` — health-domain-tuned, ~2–10 s/call). Swappable to Groq, or local **Ollama** for a fully-OSS deploy | temperature 0. Free OpenRouter models are req/min rate-limited but have no daily token cap (Groq's free 200k TPD ≈ 15–25 answers/day proved too tight — see the spec's Phase 2 deviations). |
+| Answer + verify LLM | **any OpenAI-compatible endpoint** via `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`. Using **OpenRouter** (`inclusionai/ling-3.0-flash-sante:free` — health-domain-tuned, ~2–10 s/call). Swappable to Groq, or local **Ollama** for a fully-OSS deploy | temperature 0. **OpenRouter free models are capped at 20 req/min AND 1,000 req/day account-wide** (this key has crossed the $10-lifetime-purchase threshold that unlocks 1,000/day — accounts that haven't are capped at 50/day; failed/retried requests still count against the cap; resets ~00:00 UTC). Each `/ask` call spends 2 LLM calls (answer + verify), 3 for a follow-up turn (+ condense); a full `run_evals.py` spends ~100+ calls (RAGAS judging alone is ~38). Budget interactive testing and eval runs against this — see "Before spending LLM quota" below. (Groq's free 200k TPD ≈ 15–25 answers/day proved too tight — see the spec's Phase 2 deviations.) |
 | Logging | **`query_log`** table (chunk ids, answer, verify result, latency) | the raw material for later eval + agentic work |
 | Observability | Langfuse Cloud free tier — **optional**, add later if the table isn't enough | SDK is MIT; not a v1 dependency |
 | Evals | RAGAS + custom abstention & cross-version-leak checks, `evals/`, run in CI | |
@@ -124,6 +124,18 @@ by reopening this phase list.
   health route every ~3 days to keep it warm.
 - **DB size is the corpus ceiling** — ~5–6 MB per manual (chunk text + 384-dim vectors) → ~80–100
   manuals on the 500 MB free tier. Supabase Pro ($25/mo) lifts this to thousands.
+
+## Before spending LLM quota
+
+OpenRouter's free tier is the tightest resource in this project — 1,000 req/day account-wide
+(20/min), shared by every interactive `/ask` call, every `run_evals.py` invocation, and both
+CI eval jobs on every push, plus the nightly scheduled run. **Claude: before triggering
+anything that calls the project's LLM (a live `/ask`, `run_evals.py` in any mode, a manual
+OpenRouter call, or pushing a commit that fires CI's eval jobs), ask the user first and state
+the expected call count** — roughly: 2 per single-turn `/ask`, 3 per follow-up turn, ~30 for
+`--quick`, ~100+ for a full run (RAGAS judging alone is ~38 calls). Do not assume quota is
+available; check `X-RateLimit-Remaining` if in doubt. This does not apply to Claude's own
+usage — only to this project's OpenRouter-backed pipeline.
 
 ## Available resources
 
