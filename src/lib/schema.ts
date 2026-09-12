@@ -27,6 +27,10 @@ export const answerResultSchema = z.object({
   // grounded = >=1 citation to this version; abstained = "not found"; meta = about the
   // conversation itself (no citation, no manual claim).
   kind: z.enum(['grounded', 'abstained', 'meta']),
+  // v1.5: which registry model id actually answered this turn (see MODEL_REGISTRY below).
+  // Always populated, including abstained/meta — a fallback can fire on the condense call
+  // alone, before any grounding decision is made.
+  modelId: z.string(),
 })
 
 export const verifyResultSchema = z.object({
@@ -62,3 +66,16 @@ export const ABSTAIN_MESSAGE = 'Not found in this version.'
 // not a page of the manual. A citation to it renders as "Document metadata" — no
 // page link, no source slide-over.
 export const FACTS_CHUNK_ID = '__facts__'
+
+// v1.5: the model fallback chain. `id` is the stable, user-facing/query_log identifier;
+// `llmModel` is the literal string sent to the OpenAI-compatible endpoint as `model`. Not a
+// secret (only LLM_API_KEY is) — safe to mirror into the SPA bundle so the composer's
+// selector can render real labels without a second source of truth. Order matters: it's
+// also the fallback CHAIN order — createChatWithFallback() walks forward from whichever
+// model it starts at, so a model later in the list is a fallback for everything before it.
+export type ModelOption = { id: string; label: string; llmModel: string; free: boolean }
+export const MODEL_REGISTRY: ModelOption[] = [
+  { id: 'free', label: 'Free', llmModel: 'inclusionai/ling-3.0-flash-sante:free', free: true },
+  { id: 'qwen', label: 'Qwen 3.7 Flash', llmModel: 'qwen/qwen3.7-flash', free: false },
+]
+export const DEFAULT_MODEL_ID: string = MODEL_REGISTRY[0].id

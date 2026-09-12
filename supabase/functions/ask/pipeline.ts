@@ -75,6 +75,11 @@ export type AskDeps = {
   // Catalog facts for the version, or null when unavailable / not visible to the caller.
   getFacts: (versionId: string) => Promise<DocFacts | null>
   chat: ChatFn
+  // v1.5: which MODEL_REGISTRY id actually handled the most recent deps.chat() call (or the
+  // chain's starting model if none has been made yet). Paired with `chat` — index.ts builds
+  // both from the same createChatWithFallback() instance so this always reflects reality,
+  // including a mid-turn fallback.
+  getModelUsed: () => string
   // Start-or-advance the session; returns this turn's 1-based number.
   nextTurn: (sessionId: string, versionId: string, title: string) => Promise<number>
   // Prior turns + the rolling summary for this session.
@@ -97,6 +102,7 @@ export type QueryLogRow = {
   retrieved: { chunkId: string; page: number; score: number }[]
   verify: { supported: boolean; unsupportedClaims: string[]; revisedAnswer: string } | null
   latency_ms: number
+  model_used: string
 }
 
 // Split prior turns into a verbatim recent window (fits the char budget, newest-biased,
@@ -220,6 +226,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
       retrieved,
       sessionId,
       turn,
+      modelId: deps.getModelUsed(),
     }
     await safeLog(deps, {
       session_id: sessionId,
@@ -233,6 +240,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
       retrieved,
       verify,
       latency_ms: deps.now() - started,
+      model_used: deps.getModelUsed(),
     })
     return result
   }
@@ -295,6 +303,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
       retrieved: [],
       sessionId,
       turn,
+      modelId: deps.getModelUsed(),
     })
     await safeLog(deps, {
       session_id: sessionId,
@@ -308,6 +317,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
       retrieved: [],
       verify: null,
       latency_ms: deps.now() - started,
+      model_used: deps.getModelUsed(),
     })
     return result
   }
@@ -382,6 +392,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
     retrieved,
     sessionId,
     turn,
+    modelId: deps.getModelUsed(),
   })
   await safeLog(deps, {
     session_id: sessionId,
@@ -395,6 +406,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
     retrieved,
     verify,
     latency_ms: deps.now() - started,
+    model_used: deps.getModelUsed(),
   })
   return result
 }

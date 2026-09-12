@@ -2,8 +2,11 @@
 // text: request JSON -> JSON.parse -> extract the first {…} -> one retry with a
 // "valid JSON only" nudge -> then the caller treats a null as an abstention.
 //
-// The endpoint is swappable via LLM_BASE_URL / LLM_API_KEY / LLM_MODEL (Groq now; OpenRouter
-// or local Ollama later). Read env inside the call, never at import.
+// The endpoint is swappable via LLM_BASE_URL / LLM_API_KEY (Groq now; OpenRouter or local
+// Ollama later) — those stay constant across every model in MODEL_REGISTRY (v1.5), since
+// they're all the same account/endpoint; only the model string itself varies per call. Read
+// env inside the call, never at import.
+import type { ModelOption } from './schema.ts'
 
 export type ChatFn = (system: string, user: string) => Promise<string>
 
@@ -16,11 +19,15 @@ export class LlmQuotaError extends Error {
   }
 }
 
-export async function llmChat(system: string, user: string): Promise<string> {
+// A single request hangs instead of failing cleanly on some outages — bound it so a stuck
+// primary triggers the v1.5 fallback instead of tying up the ~150s Edge Function wall clock.
+const REQUEST_TIMEOUT_MS = 30_000
+
+export async function llmChat(model: string, system: string, user: string): Promise<string> {
   const base = Deno.env.get('LLM_BASE_URL')?.replace(/\/$/, '')
   const key = Deno.env.get('LLM_API_KEY')
-  const model = Deno.env.get('LLM_MODEL')
-  if (!base || !key || !model) throw new Error('LLM_BASE_URL / LLM_API_KEY / LLM_MODEL not set')
+  if (!base || !key) throw new Error('LLM_BASE_URL / LLM_API_KEY not set')
+  if (!model) throw new Error('llmChat: model is required')
 
   // Short-lived retries only. A per-minute/burst 429 clears in seconds; a daily-quota 429
   // (Groq TPD, or retry-after longer than a request has any business waiting) is terminal —
@@ -38,6 +45,7 @@ export async function llmChat(system: string, user: string): Promise<string> {
           { role: 'user', content: user },
         ],
       }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
     if (res.status === 429) {
       const body = (await res.text()).slice(0, 500)
@@ -114,4 +122,39 @@ export async function chatJson<T>(
     if (e instanceof LlmQuotaError) throw e
     return null
   }
+}
+
+// v1.5 model fallback. Wraps a per-model call (llmChat by default — injectable so this is
+// `deno test`-able with no network, same philosophy as pipeline.ts's AskDeps) with a fixed
+// chain (MODEL_REGISTRY order): each call to the returned `chat` tries the active model
+// first; on ANY thrown error (quota, rate limit, timeout, a genuine 5xx) it advances through
+// the rest of the chain in order, until one succeeds or the chain is exhausted. Whichever
+// model succeeds becomes the active model for the life of THIS instance — build one per
+// /ask call (one per turn) so condense, answer, and verify all land on the same model once a
+// fallback has occurred ("whole-turn stickiness": one model answers one turn, never a mix).
+export function createChatWithFallback(
+  models: ModelOption[],
+  startId: string,
+  callModel: (model: string, system: string, user: string) => Promise<string> = llmChat,
+): { chat: ChatFn; getModelUsed: () => string } {
+  if (models.length === 0) throw new Error('createChatWithFallback: empty model list')
+  const startIdx = models.findIndex((m) => m.id === startId)
+  let activeIdx = startIdx >= 0 ? startIdx : 0
+
+  const chat: ChatFn = async (system, user) => {
+    let lastErr: unknown
+    for (let i = activeIdx; i < models.length; i++) {
+      try {
+        const out = await callModel(models[i].llmModel, system, user)
+        activeIdx = i
+        return out
+      } catch (e) {
+        lastErr = e
+        // fall through to the next model in the chain
+      }
+    }
+    throw lastErr
+  }
+
+  return { chat, getModelUsed: () => models[activeIdx].id }
 }

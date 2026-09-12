@@ -50,6 +50,7 @@ function makeDeps(o: Overrides = {}) {
     getHistory: () => Promise.resolve({ summary: '', summaryThroughTurn: 0, priorTurns: [] }),
     saveSummary: () => Promise.resolve(),
     getFacts: () => Promise.resolve(null),
+    getModelUsed: () => 'free',
     now: () => 1000,
     ...o,
   }
@@ -349,4 +350,49 @@ Deno.test('facts: getFacts null -> pre-facts behaviour (no chunks, no facts -> a
   const r = await ask({ versionId: VID, sessionId: SID, question: 'how many pages?' }, deps)
   assertEquals(r.abstained, true)
   assertEquals(r.kind, 'abstained')
+})
+
+// ── v1.5: model fallback reporting ───────────────────────────────────────────
+// pipeline.ts only ever reads deps.getModelUsed() and stamps it onto the result / query_log
+// row — createChatWithFallback's own fallback logic is exercised in llm.test.ts. These
+// confirm the pipeline wires that value through every return path, including ones a real
+// fallback could realistically hit (a meta turn's condense call, an abstain with zero
+// retrieved chunks).
+
+Deno.test('modelId: grounded result reports whichever model deps.getModelUsed() names', async () => {
+  const { deps, logged } = makeDeps({ getModelUsed: () => 'qwen' })
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'how is the PSS scored?' }, deps)
+  assertEquals(r.abstained, false)
+  assertEquals(r.modelId, 'qwen')
+  assertEquals(logged[0].model_used, 'qwen')
+})
+
+Deno.test('modelId: an abstained result (fallback fired mid-turn) still reports it', async () => {
+  const { deps, logged } = makeDeps({ hits: [], getFacts: () => Promise.resolve(null), getModelUsed: () => 'qwen' })
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'how many pages?' }, deps)
+  assertEquals(r.abstained, true)
+  assertEquals(r.modelId, 'qwen')
+  assertEquals(logged[0].model_used, 'qwen')
+})
+
+Deno.test('modelId: a meta turn (condense-only) still reports the model that handled it', async () => {
+  const { deps, logged } = makeDeps({
+    getModelUsed: () => 'qwen',
+    getHistory: () =>
+      Promise.resolve({
+        summary: '',
+        summaryThroughTurn: 0,
+        priorTurns: [{ turn: 1, question: 'how is the PSS scored?', answer: 'By summing items.' }],
+      }),
+    chat: (system: string) =>
+      Promise.resolve(
+        system.startsWith(CONDENSE_SYSTEM)
+          ? '{"standalone":"__META__"}'
+          : '{"answer":"You asked how the PSS is scored."}',
+      ),
+  })
+  const r = await ask({ versionId: VID, sessionId: SID, question: 'what did I just ask?' }, deps)
+  assertEquals(r.kind, 'meta')
+  assertEquals(r.modelId, 'qwen')
+  assertEquals(logged[0].model_used, 'qwen')
 })

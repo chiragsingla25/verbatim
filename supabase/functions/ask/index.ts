@@ -1,11 +1,13 @@
-// POST { versionId, question } -> AnswerResult. Deploy WITH jwt verification (default):
-//   supabase functions deploy ask
-// Needs LLM_BASE_URL / LLM_API_KEY / LLM_MODEL via `supabase secrets`. SUPABASE_URL /
+// POST { versionId, question, modelId? } -> AnswerResult. Deploy WITH jwt verification
+// (default): supabase functions deploy ask
+// Needs LLM_BASE_URL / LLM_API_KEY via `supabase secrets` — LLM_MODEL is no longer read here
+// (v1.5): the model comes from MODEL_REGISTRY + createChatWithFallback instead. SUPABASE_URL /
 // SUPABASE_ANON_KEY are auto-injected. Embeddings use the built-in gte-small session.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { CORS, jsonResponse, UUID_RE } from '../_shared/http.ts'
-import { LlmQuotaError, llmChat } from '../_shared/llm.ts'
+import { createChatWithFallback, LlmQuotaError } from '../_shared/llm.ts'
 import type { RetrievedChunk } from '../_shared/prompt.ts'
+import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from '../_shared/schema.ts'
 import { ask, type QueryLogRow } from './pipeline.ts'
 
 // Supabase edge runtime global — 384-dim gte-small, the same weights as ingest.
@@ -39,7 +41,7 @@ Deno.serve(async (req) => {
   if (userErr || !userData.user) return json(401, { error: 'invalid token' })
   const userId = userData.user.id
 
-  let body: { versionId?: unknown; question?: unknown; sessionId?: unknown }
+  let body: { versionId?: unknown; question?: unknown; sessionId?: unknown; modelId?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -57,6 +59,15 @@ Deno.serve(async (req) => {
   if (typeof question !== 'string' || question.trim().length === 0) {
     return json(400, { error: 'question is required' })
   }
+
+  // v1.5: an unknown/missing modelId (a stale client, a typo, someone hand-crafting a
+  // request) silently resolves to the default rather than erroring — the model chain is a
+  // preference, not a required field.
+  const requestedModelId =
+    typeof body.modelId === 'string' && MODEL_REGISTRY.some((m) => m.id === body.modelId)
+      ? body.modelId
+      : DEFAULT_MODEL_ID
+  const { chat, getModelUsed } = createChatWithFallback(MODEL_REGISTRY, requestedModelId)
 
   const model = new Supabase.ai.Session('gte-small')
 
@@ -138,7 +149,8 @@ Deno.serve(async (req) => {
             supersededByTitle: (r.superseded_by_title as string | null) ?? null,
           }
         },
-        chat: llmChat,
+        chat,
+        getModelUsed,
         logQuery: async (row: QueryLogRow) => {
           const { error } = await supabase.from('query_log').insert({ ...row, user_id: userId })
           if (error) throw new Error(error.message)

@@ -27,6 +27,7 @@ describe('schema mirror', () => {
       sessionId: 's1',
       turn: 1,
       kind: 'grounded',
+      modelId: 'free',
     })
     expect(ok.success).toBe(true)
   })
