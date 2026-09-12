@@ -1364,27 +1364,77 @@ mark.cited {
   color: var(--om-text-tertiary);
   line-height: 1.5;
 }
-/* v1.5: the composer's model preference/status control, alongside the hint text. */
-.composer-foot {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-}
-.composer-foot .composer-hint {
-  margin: 9px 0 0;
-  flex: 1;
-}
-.composer-model {
+
+/* v1.5: the model picker — a small pill living ON the composer bar itself (left of the
+   textarea), not a separate full-width control below it. Click opens a compact popover. */
+.model-picker {
+  position: relative;
   flex-shrink: 0;
-  margin-top: 6px;
-  font-size: 11.5px;
+}
+.model-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--om-text-secondary);
   background: var(--om-bg-mat);
   border: 1px solid var(--om-border-subtle);
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.model-pill:hover {
+  color: var(--om-text-primary);
+  border-color: var(--om-border-input);
+}
+.model-pill-dot {
+  font-size: 11px;
+  line-height: 1;
+}
+.model-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  min-width: 200px;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  background: var(--om-bg-surface);
+  border: 1px solid var(--om-border-card);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+.model-menu li + li {
+  margin-top: 2px;
+}
+.model-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--om-text-primary);
+  background: none;
+  border: none;
   border-radius: 6px;
-  padding: 3px 6px;
+}
+.model-menu button:hover {
+  background: var(--om-bg-muted);
+}
+.model-menu button.on {
+  background: var(--om-accent-primary-bg);
+  font-weight: 600;
+}
+.model-menu-note {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--om-text-tertiary);
 }
 
 /* ── auth (split brand + form) ── */

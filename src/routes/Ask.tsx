@@ -36,10 +36,12 @@ export function Ask() {
   // Prefill the composer from ?q= (e.g. a "Re-ask" from /history). Not auto-submitted.
   const [draft, setDraft] = useState(() => searchParams.get('q') ?? '')
   const [cite, setCite] = useState<{ page: number; quote: string } | null>(null)
-  // v1.5: the model selector. Doubles as preference AND status — a server-side fallback
+  // v1.5: the model picker. Doubles as preference AND status — a server-side fallback
   // updates this after an answer comes back (see runTurn), so the control always reflects
   // what actually just answered, not just what was asked for.
   const [modelId, setModelId] = useState(DEFAULT_MODEL_ID)
+  const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const modelMenuRef = useRef<HTMLDivElement>(null)
   const nextId = useRef(1)
   const endRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -106,6 +108,23 @@ export function Ask() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // Close the model picker on Escape or a click outside it.
+  useEffect(() => {
+    if (!modelMenuOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setModelMenuOpen(false)
+    const onClick = (e: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setModelMenuOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mousedown', onClick)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mousedown', onClick)
+    }
+  }, [modelMenuOpen])
 
   function newChat() {
     hydratedFor.current = null
@@ -259,6 +278,46 @@ export function Ask() {
       <form className="composer" onSubmit={submit}>
         <div className="composer-inner">
           <div className="composer-box">
+            <div className="model-picker" ref={modelMenuRef}>
+              <button
+                type="button"
+                className="model-pill"
+                onClick={() => setModelMenuOpen((o) => !o)}
+                aria-haspopup="listbox"
+                aria-expanded={modelMenuOpen}
+                title="Which model answers your questions. Switches automatically if your pick is unavailable."
+              >
+                <span className="model-pill-dot" aria-hidden="true">
+                  {MODEL_REGISTRY.find((m) => m.id === modelId)?.free ? '⚡' : '✦'}
+                </span>
+                {MODEL_REGISTRY.find((m) => m.id === modelId)?.label ?? modelId}
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              {modelMenuOpen && (
+                <ul className="model-menu" role="listbox">
+                  {MODEL_REGISTRY.map((m) => (
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={m.id === modelId}
+                        className={m.id === modelId ? 'on' : undefined}
+                        onClick={() => {
+                          setModelId(m.id)
+                          setModelMenuOpen(false)
+                        }}
+                      >
+                        <span aria-hidden="true">{m.free ? '⚡' : '✦'}</span>
+                        {m.label}
+                        {m.free && <span className="model-menu-note">default</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <textarea
               ref={composerRef}
               value={draft}
@@ -278,25 +337,10 @@ export function Ask() {
               </svg>
             </button>
           </div>
-          <div className="composer-foot">
-            <p className="composer-hint">
-              Answers are quoted from the selected manual version only — never the open web.
-              Always verify against the source before clinical use.
-            </p>
-            <select
-              className="composer-model"
-              value={modelId}
-              onChange={(e) => setModelId(e.target.value)}
-              aria-label="Answer model"
-              title="Which model answers your questions. Switches automatically if your pick is unavailable."
-            >
-              {MODEL_REGISTRY.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <p className="composer-hint">
+            Answers are quoted from the selected manual version only — never the open web. Always
+            verify against the source before clinical use.
+          </p>
         </div>
       </form>
 
