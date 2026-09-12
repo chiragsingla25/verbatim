@@ -271,6 +271,38 @@ prefer the smallest fix then (raise `k`; a minimal FTS fallback) before RRF.
 
 ## Whole-addendum verification (hand to release-qa after Phase 2)
 
+### release-qa (Verify — Phase 2, 2026-09-11)
+
+- **Phase-1 baseline, recorded** (blocked on the OpenRouter daily cap until now): full
+  `run_evals.py` against the *pre-facts* prod `ask` — **88.46% abstention accuracy (< 90%
+  threshold, blocking)**. 3 failures: `pss-reverse-items` (known answer-step issue, filed to
+  backlog, unrelated to this change), `audit-page-count` (wrongly abstained), and
+  `audit-publication-year` (wrong year, "1989" instead of "2001") — the latter two are
+  exactly the metadata-question class the facts block targets.
+- **`/code-review`** on the never-reviewed `75e64d6` diff (high effort, RLS + control-flow
+  focus): 2 findings, both non-blocking (no correctness/security defect).
+  - **Fixed** (`1d13ebb`): `Promise.all([embed, getFacts])` made `matchChunks` — which only
+    needs the embedding — wait on the facts RPC too, adding latency to every turn. Changed to
+    kick off `getFacts` without blocking; `matchChunks` now starts the instant `embed`
+    resolves. No behavior change (37/37 deno green, incl. the 4 `facts:` cases).
+  - **Recorded, not fixed:** `hits.length === 0 && !facts` effectively retires the old
+    zero-chunk fast-abstain for any version that exists and is visible (`version_facts()` is
+    non-null for any real version regardless of chunk count) — a version with broken/empty
+    ingestion now costs 2 LLM calls per question instead of 0. Rare edge case (requires a
+    published version with zero chunks); not worth special-casing.
+- **Deployed:** `supabase functions deploy ask` (facts block + the latency fix), confirmed
+  live via a direct call — "How many pages is this document, and what year was it published?"
+  → `"This document is 41 pages long and was published in 2001."`, citing `__facts__`.
+- **Post-deploy full `run_evals.py`: PASSED.**
+  - Abstention accuracy: **96.15%** (25/26) — both `audit-page-count` and
+    `audit-publication-year` now `grounded`, citing `__facts__`. Only `pss-reverse-items`
+    remains (pre-existing answer-step issue, out of scope here).
+  - Cross-version leak: 4/4 isolated, zero leaks.
+  - RAGAS: faithfulness 0.842, context-precision 0.609, **mean 0.725** (≥ 0.70 threshold).
+  - Conversational: 6/6.
+- **Verdict: shipped.** `ask` is live with the facts block; `version_facts` migration
+  confirmed applied. No further action needed on this spec.
+
 - **Grounding / isolation:** retrieval is unchanged (`match_chunks`, `security invoker`,
   version-filtered); `cross_version_leak.py` = 0. `version_facts()` is `security invoker` too,
   so a version the caller can't see yields no facts block. A `__facts__` citation can only
@@ -330,7 +362,11 @@ prefer the smallest fix then (raise `k`; a minimal FTS fallback) before RRF.
 - **`ask()` now proceeds when `hits.length === 0` *if* `facts` is non-null** (a metadata
   question with weak chunk retrieval must still reach the answer step). Both empty → still
   short-circuits to `abstain`.
-- **`getFacts` and `embed` run in `Promise.all`** — the facts RPC adds no latency.
+- **`getFacts` and `embed` originally ran in `Promise.all`**, which unintentionally made
+  `matchChunks` (which only needs the embedding) wait on the facts RPC too — flagged by the
+  pre-deploy `/code-review` pass and fixed: `getFacts` is kicked off without blocking, and
+  `matchChunks` starts the instant `embed` resolves; `facts` is awaited only when the pool is
+  built. No behavior change (37/37 deno green, incl. the 4 `facts:` cases) — pure latency fix.
 - **`__facts__` is kept out of `query_log.retrieved`** (a source, not a retrieved chunk) but
   may appear in `query_log.citations`. The verify "+2 extra" context chunks exclude it; a
   cited `__facts__` is always in the verify context.
