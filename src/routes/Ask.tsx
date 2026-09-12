@@ -4,6 +4,7 @@ import { AnswerCard } from '../components/AnswerCard'
 import { AnswerProgress } from '../components/AnswerProgress'
 import { ask, type AskVersion, getAskVersion, getSession, newSessionId } from '../lib/api'
 import { instrumentBadge } from '../lib/instrument'
+import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from '../lib/schema'
 import type { AnswerResult } from '../lib/schema'
 import { startersFor } from '../lib/starters'
 
@@ -35,6 +36,10 @@ export function Ask() {
   // Prefill the composer from ?q= (e.g. a "Re-ask" from /history). Not auto-submitted.
   const [draft, setDraft] = useState(() => searchParams.get('q') ?? '')
   const [cite, setCite] = useState<{ page: number; quote: string } | null>(null)
+  // v1.5: the model selector. Doubles as preference AND status — a server-side fallback
+  // updates this after an answer comes back (see runTurn), so the control always reflects
+  // what actually just answered, not just what was asked for.
+  const [modelId, setModelId] = useState(DEFAULT_MODEL_ID)
   const nextId = useRef(1)
   const endRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -122,8 +127,12 @@ export function Ask() {
     if (!sessionId) return
     setTurns((t) => t.map((x) => (x.id === id ? { ...x, pending: true, error: undefined } : x)))
     try {
-      const result = await ask(versionId, q, sessionId)
+      const result = await ask(versionId, q, sessionId, modelId)
       setTurns((t) => t.map((x) => (x.id === id ? { ...x, pending: false, result } : x)))
+      // Reflect whichever model actually answered — a fallback flips the selector itself.
+      if (result.modelId && MODEL_REGISTRY.some((m) => m.id === result.modelId)) {
+        setModelId(result.modelId)
+      }
     } catch (err) {
       setTurns((t) =>
         t.map((x) =>
@@ -269,10 +278,25 @@ export function Ask() {
               </svg>
             </button>
           </div>
-          <p className="composer-hint">
-            Answers are quoted from the selected manual version only — never the open web. Always
-            verify against the source before clinical use.
-          </p>
+          <div className="composer-foot">
+            <p className="composer-hint">
+              Answers are quoted from the selected manual version only — never the open web.
+              Always verify against the source before clinical use.
+            </p>
+            <select
+              className="composer-model"
+              value={modelId}
+              onChange={(e) => setModelId(e.target.value)}
+              aria-label="Answer model"
+              title="Which model answers your questions. Switches automatically if your pick is unavailable."
+            >
+              {MODEL_REGISTRY.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </form>
 

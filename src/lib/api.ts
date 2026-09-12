@@ -64,6 +64,9 @@ export async function ask(
   versionId: string,
   question: string,
   sessionId: string,
+  // v1.5: the caller's preferred MODEL_REGISTRY id. Omitted / unknown resolves server-side
+  // to DEFAULT_MODEL_ID — this is a preference, not a required field.
+  modelId?: string,
 ): Promise<AnswerResult> {
   const { data: sess } = await supabase.auth.getSession()
   const token = sess.session?.access_token
@@ -78,7 +81,7 @@ export async function ask(
         apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ versionId, question, sessionId }),
+      body: JSON.stringify({ versionId, question, sessionId, modelId }),
       signal: AbortSignal.timeout(130_000),
     })
   } catch (e) {
