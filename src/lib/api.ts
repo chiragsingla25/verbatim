@@ -92,26 +92,6 @@ export async function ask(
   return answerResultSchema.parse(await res.json())
 }
 
-// Content of specific chunks, for SOURCE DISPLAY ONLY (rendering a cited table in an
-// answer). Read under the caller's JWT — RLS `document_chunks_select_via_version` gates it
-// to active / owned / admin versions, the same data a citation already exposes. This is
-// never used to synthesise an answer; retrieval still goes only through `match_chunks`.
-export type CitedChunk = { content: string; tableRef: string | null; page: number }
-export async function citedChunkContent(chunkIds: string[]): Promise<Record<string, CitedChunk>> {
-  const ids = [...new Set(chunkIds)].filter(Boolean)
-  if (ids.length === 0) return {}
-  const { data, error } = await supabase
-    .from('document_chunks')
-    .select('id, content, table_ref, page')
-    .in('id', ids)
-  if (error) throw new Error(error.message)
-  const out: Record<string, CitedChunk> = {}
-  for (const r of (data ?? []) as { id: string; content: string; table_ref: string | null; page: number }[]) {
-    out[r.id] = { content: r.content ?? '', tableRef: r.table_ref, page: r.page }
-  }
-  return out
-}
-
 // Every chunk's text + page for a version, for the citation viewer's "search this manual"
 // (client-side substring match). SOURCE DISPLAY ONLY — read under the caller's JWT, gated
 // by the same `document_chunks_select_via_version` RLS. Not a retrieval path.
@@ -128,27 +108,6 @@ export async function manualText(versionId: string): Promise<ManualTextRow[]> {
     content: r.content ?? '',
     section: r.section ?? null,
   }))
-}
-
-// A version's section outline for the manual detail page — distinct `section` labels in
-// page order, derived from the chunk rows (source display only, JWT-scoped, RLS-gated).
-export type OutlineItem = { section: string; page: number }
-export async function manualOutline(versionId: string): Promise<OutlineItem[]> {
-  const rows = await manualText(versionId)
-  const seen = new Set<string>()
-  const out: OutlineItem[] = []
-  for (const r of rows) {
-    let s = (r.section ?? '').replace(/\s+/g, ' ').trim()
-    // Docling sometimes doubles a heading ("Abstract Abstract"); collapse an exact
-    // immediate repeat of the whole label or its first half.
-    s = s.replace(/^(.+?)\s+\1$/i, '$1')
-    if (s.length > 90) s = s.slice(0, 88).trimEnd() + '…'
-    const key = s.toLowerCase()
-    if (!s || seen.has(key)) continue
-    seen.add(key)
-    out.push({ section: s, page: r.page })
-  }
-  return out
 }
 
 // How many questions the caller has asked since local midnight (a quiet usage cue).

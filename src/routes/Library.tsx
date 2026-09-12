@@ -85,7 +85,7 @@ export function Library() {
             {active.map((v) => {
               const badge = instrumentBadge(v.instrument?.name)
               return (
-              <Link key={v.id} to={`/manual/${v.id}`} className="lib-row">
+              <Link key={v.id} to={`/ask/${v.id}`} className="lib-row">
                 <span className="r-name">
                   <span className="inst-badge" style={{ background: badge.tint }}>
                     {badge.initials}

@@ -1,9 +1,7 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { type CitedChunk, citedChunkContent } from '../lib/api'
 import { copyText } from '../lib/clipboard'
 import { type AnswerResult, type Citation, FACTS_CHUNK_ID } from '../lib/schema'
-import { parseMarkdownTable } from '../lib/tables'
 
 // The rendered answer — grounded card (prose + inline citations + lead pull-quote +
 // "verified against source" row) or the amber abstain card. Extracted from Ask.tsx so the
@@ -72,28 +70,6 @@ function GroundedAnswer({
   const lead = pageCites[0]
   const [copied, setCopied] = useState<'idle' | 'ok' | 'hint'>('idle')
 
-  // Cited chunks that are (or contain) a table — fetched for the in-answer table excerpt.
-  const [chunks, setChunks] = useState<Record<string, CitedChunk>>({})
-  const citedIds = [...new Set(pageCites.map((c) => c.chunkId))]
-  const idsKey = citedIds.join(',')
-  useEffect(() => {
-    if (citedIds.length === 0) return
-    let live = true
-    citedChunkContent(citedIds)
-      .then((m) => live && setChunks(m))
-      .catch(() => {
-        /* source display is best-effort — a fetch failure just omits the table excerpt */
-      })
-    return () => {
-      live = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey])
-
-  const tableChunks = citedIds
-    .map((id) => ({ id, chunk: chunks[id] }))
-    .filter((x): x is { id: string; chunk: CitedChunk } => !!x.chunk?.tableRef)
-
   async function copy() {
     const src = pageCites
       .map((c) => `— ${manual}, p.${c.page}: "${c.quote.trim()}"`)
@@ -112,10 +88,6 @@ function GroundedAnswer({
       {lead && lead.quote.trim().length > 0 && (
         <blockquote className="answer-quote">“{lead.quote.trim()}”</blockquote>
       )}
-
-      {tableChunks.map(({ id, chunk }) => (
-        <TableExcerpt key={id} chunk={chunk} onView={() => onCite(chunk.page, '')} />
-      ))}
 
       {(pageCites.length > 0 || factsCited) && (
         <div className="cite-row">
@@ -149,47 +121,6 @@ function GroundedAnswer({
         )}
       </div>
     </div>
-  )
-}
-
-// A cited chunk that is / contains a table. The v1 corpus stores tables flattened (not a
-// grid), so this shows the excerpt text in a labelled block + a jump to the source page
-// where the real table is laid out. parseMarkdownTable handles a future grid-text re-ingest.
-function TableExcerpt({ chunk, onView }: { chunk: CitedChunk; onView: () => void }) {
-  const parsed = parseMarkdownTable(chunk.content)
-  return (
-    <figure className="answer-table">
-      <figcaption>
-        From a table · p.{chunk.page}
-        <button type="button" className="link" onClick={onView}>
-          See it on the source page →
-        </button>
-      </figcaption>
-      {parsed ? (
-        <div className="answer-table-scroll">
-          <table>
-            <thead>
-              <tr>
-                {parsed.headers.map((h, i) => (
-                  <th key={i}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {parsed.rows.map((r, ri) => (
-                <tr key={ri}>
-                  {r.map((c, ci) => (
-                    <td key={ci}>{c}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <pre>{chunk.content}</pre>
-      )}
-    </figure>
   )
 }
 

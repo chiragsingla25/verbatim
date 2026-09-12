@@ -10,7 +10,6 @@ import { AuthCallback } from './routes/AuthCallback'
 import { ForgotPassword } from './routes/ForgotPassword'
 import { History } from './routes/History'
 import { Library } from './routes/Library'
-import { Manual } from './routes/Manual'
 import { ResetPassword } from './routes/ResetPassword'
 import { ReviewUpload } from './routes/ReviewUpload'
 import { SignIn } from './routes/SignIn'
@@ -77,14 +76,6 @@ export default function App() {
         element={
           <RequireAuth>
             <Library />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/manual/:versionId"
-        element={
-          <RequireAuth>
-            <Manual />
           </RequireAuth>
         }
       />
