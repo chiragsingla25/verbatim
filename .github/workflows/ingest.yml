@@ -18,10 +18,16 @@ on:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    # Cold run: pip install + first-ever model download + a CPU parse. Warm run (model
-    # cache hit): a couple of minutes. run.py's watchdog fails the job cleanly well
-    # before this hard limit, so a stuck parse never wedges the review screen.
-    timeout-minutes: 30
+    # A CPU-only Docling parse has a real, document-dependent ceiling that isn't a
+    # simple function of page count (a dense reference-table document has been observed
+    # taking far longer per page than a typical manual) -- an upload is a one-time cost,
+    # not a per-query one, so this budget is generous by design: 335 min, chosen to sit
+    # just below run.py's own 19800s (330min) watchdog, which sits below GitHub-hosted
+    # runners' hard 360min job ceiling. run.py's watchdog always fires first and leaves
+    # the job row in a clean 'failed' state; this timeout-minutes is only the backstop
+    # if the watchdog thread itself somehow doesn't run. Per-batch progress logging
+    # (ingest/parse.py) makes a long run observable in this job's log instead of opaque.
+    timeout-minutes: 335
     steps:
       - uses: actions/checkout@v4
 
@@ -58,9 +64,11 @@ jobs:
           JOB_ID: ${{ github.event.client_payload.job_id }}
           VERSION_ID: ${{ github.event.client_payload.version_id }}
           OBJECT_PATH: ${{ github.event.client_payload.object_path }}
-          # Watchdog trips before the runner's 30-min hard kill, so the job row is
-          # always left in a terminal state ('failed') rather than stuck at 'parsing'.
-          INGEST_WATCHDOG_SECONDS: "1500"
+          # Watchdog trips before this job's own timeout-minutes (335) and well before
+          # GitHub-hosted runners' hard 360min ceiling, so the job row is always left in
+          # a terminal state ('failed') rather than stuck at 'parsing'. Matches run.py's
+          # WATCHDOG_SECONDS default -- set explicitly here too so the two never drift.
+          INGEST_WATCHDOG_SECONDS: "19800"
         run: >
           python -m ingest.run
           --job-id "$JOB_ID"

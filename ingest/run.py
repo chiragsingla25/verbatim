@@ -52,7 +52,13 @@ LOW_OCR_THRESHOLD = 0.8
 # Watchdog default — overridden by INGEST_WATCHDOG_SECONDS in the workflow. Must sit
 # comfortably below the Actions job's timeout-minutes so it wins the race and leaves
 # the job in a terminal state instead of a runner SIGKILL wedging it at 'parsing'.
-WATCHDOG_SECONDS = int(os.environ.get("INGEST_WATCHDOG_SECONDS", "1500"))
+# 19800s = 5.5h, chosen deliberately below GitHub-hosted runners' hard 6h (360min) job
+# ceiling (confirmed current as of this change) — Docling's CPU-only OCR/table-structure
+# cost is real but bounded per page, and a document is uploaded once and re-processed
+# rarely if ever, so patience is cheap here; per-batch progress logging (see
+# ingest/parse.py) is what actually lets a slow run be judged on real data instead of
+# killed blind at an arbitrary short deadline.
+WATCHDOG_SECONDS = int(os.environ.get("INGEST_WATCHDOG_SECONDS", "19800"))
 
 
 def start_watchdog(db_url: str, job_id: str, seconds: int = WATCHDOG_SECONDS) -> None:
@@ -256,12 +262,13 @@ def run(job_id: str, version_id: str, object_path: str) -> None:
             sys.exit(1)
         # A CPU-only, single-runner Docling pass (OCR + table-structure recognition) has a
         # real, observed ceiling: the largest sample manual (AUDIT, 41 pages) finishes in
-        # ~2 minutes; a 247-page document ran past the 1500s watchdog budget without
-        # finishing at all. Rather than spend 25 minutes discovering that on every
-        # oversized upload, reject up front with a clear reason. 100 is deliberately well
-        # above today's largest real manual and well below the failing case, not a tight
-        # fit to either number.
-        MAX_PAGES = 100
+        # ~2 minutes; a 247-page document ran past the old 1500s (25min) watchdog budget
+        # without finishing. That watchdog is now 19800s (5.5h, see WATCHDOG_SECONDS) with
+        # per-batch progress logging (ingest/parse.py) making a slow run observable instead
+        # of an opaque timeout — so this cap is no longer about what CAN finish in time,
+        # it's a sanity ceiling against a truly pathological upload (thousands of pages).
+        # 500 is well above any realistically-sized manual.
+        MAX_PAGES = 500
         if n_pages > MAX_PAGES:
             fail_job(
                 conn,
@@ -288,7 +295,7 @@ def run(job_id: str, version_id: str, object_path: str) -> None:
                 tmp.write(pdf_bytes)
                 tmp_path = tmp.name
 
-            parsed = parse_pdf(tmp_path)
+            parsed = parse_pdf(tmp_path, total_pages=n_pages)
             records = list(chunk_document(parsed.document, parsed.page_confidence))
             if not records:
                 raise RuntimeError("chunker produced 0 chunks")

@@ -9,13 +9,21 @@ derive each chunk's ``ocr_confidence`` downstream).
 from __future__ import annotations
 
 import math
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
+
+# Pages per Docling `convert(..., page_range=...)` call when batching (see parse_pdf).
+# Small enough that a slow/OCR-heavy document logs progress every few minutes rather
+# than going silent for the whole run; large enough that per-batch overhead (each call
+# re-walks the PDF backend for its slice) stays negligible next to actual page work.
+BATCH_SIZE = 10
 
 # RapidOcrOptions' own default OCR language is Chinese ("lang": ["chinese"]) — verified
 # against the pinned docling==2.126.0 package directly, not assumed. Every manual in this
@@ -103,22 +111,71 @@ def _page_confidence(result: Any) -> dict[int, float]:
     return out
 
 
-def parse_pdf(pdf_path: str | Path) -> ParseResult:
+def parse_pdf(pdf_path: str | Path, total_pages: Optional[int] = None) -> ParseResult:
     """Convert ``pdf_path`` with Docling. Raises on an unreadable / unconvertible file.
 
+    ``total_pages`` (from ``run.py``'s cheap pypdf sniff, done before this is ever
+    called) switches on batched conversion: Docling is called once per ``BATCH_SIZE``
+    page slice via its own ``page_range`` param, logging progress after each batch
+    (page range done, this batch's time, elapsed total) so a slow document is visible
+    in the Actions log instead of going dark for the whole run — this was the actual
+    ask that motivated batching, not just a nice-to-have. Verified for real against the
+    pinned docling==2.126.0 before relying on it here (a scratch-venv test against
+    ``data/manuals/audit.pdf``, non-contiguous batches merged): a page-ranged
+    ``convert()`` call reports REAL absolute page numbers (batch pages 21-30 come back
+    tagged page_no 21-30, not reset to 1-10) in both ``item.prov[0].page_no`` and
+    ``confidence.pages`` — and ``DoclingDocument.add_document()`` (a real public method,
+    not a workaround) preserves those page numbers and table associations correctly
+    when folding one batch's document into another's. Without ``total_pages`` (e.g. a
+    direct/local call), falls back to the original single-shot behavior unchanged.
+
     If ``document_timeout`` is ever enabled above, add back a check here BEFORE reading
-    ``result.document`` — a timeout doesn't raise, it returns normally with
+    a result's ``.document`` — a timeout doesn't raise, it returns normally with
     ``ConversionStatus.PARTIAL_SUCCESS`` (``result.has_timeout_errors()``), and an
     incomplete clinical manual (missing pages, possibly a scoring table) must never be
     silently ingested as if it were complete."""
     converter = DocumentConverter(
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=_PIPELINE_OPTIONS)}
     )
-    result = converter.convert(str(pdf_path))
-    document = result.document
+
+    if not total_pages or total_pages <= BATCH_SIZE:
+        result = converter.convert(str(pdf_path))
+        document = result.document
+        return ParseResult(
+            document=document,
+            page_count=document.num_pages(),
+            num_tables=len(document.tables),
+            page_confidence=_page_confidence(result),
+        )
+
+    merged_document: Any = None
+    merged_confidence: dict[int, float] = {}
+    t_start = time.time()
+    start = 1
+    while start <= total_pages:
+        end = min(start + BATCH_SIZE - 1, total_pages)
+        t_batch = time.time()
+        result = converter.convert(str(pdf_path), page_range=(start, end))
+        merged_confidence.update(_page_confidence(result))
+        if merged_document is None:
+            merged_document = result.document
+        else:
+            merged_document.add_document(result.document)
+        print(
+            f"docling: pages {start}-{end} of {total_pages} done "
+            f"({time.time() - t_batch:.1f}s this batch, "
+            f"{time.time() - t_start:.1f}s elapsed)",
+            file=sys.stderr,
+            flush=True,
+        )
+        start = end + 1
+
     return ParseResult(
-        document=document,
-        page_count=document.num_pages(),
-        num_tables=len(document.tables),
-        page_confidence=_page_confidence(result),
+        document=merged_document,
+        page_count=total_pages,  # NOT merged_document.num_pages() -- that only reflects
+        # the first batch's slice; add_document() merges body content (text/tables),
+        # not the whole-document page-count metadata. total_pages is the real, already-
+        # verified count from run.py's pypdf sniff.
+        num_tables=len(merged_document.tables),
+        page_confidence=merged_confidence,
     )
