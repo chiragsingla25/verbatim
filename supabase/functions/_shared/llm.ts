@@ -19,9 +19,13 @@ export class LlmQuotaError extends Error {
   }
 }
 
-// A single request hangs instead of failing cleanly on some outages — bound it so a stuck
-// primary triggers the v1.5 fallback instead of tying up the ~150s Edge Function wall clock.
-const REQUEST_TIMEOUT_MS = 30_000
+// Per-call bound so a stuck primary triggers the v1.5 fallback instead of eating the
+// ~150s Edge Function wall clock. 60s (was 30s): a large-manual answer prompt (e.g. MCMI-3,
+// 12 unclipped table chunks) regularly needs 20–45s on Qwen; 30s aborted those as 502s.
+// A timeout throws out of llmChat immediately (no 429-retry on the dead model) and
+// createChatWithFallback advances. Worst two-model timeout path: 60+60 + embed/retrieve
+// ≈ 130s, under the 150s ceiling. The SPA wait is 145s so the function finishes first.
+const REQUEST_TIMEOUT_MS = 60_000
 
 // A 429 body that means "terminal for hours, don't bother retrying" rather than "clears in
 // seconds." Matched against OpenRouter's REAL daily-cap response (verified live): the

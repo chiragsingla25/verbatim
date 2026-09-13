@@ -172,8 +172,10 @@ import {
 
 const priorTurn = (turn: number, q: string, a: string) => ({ turn, question: q, answer: a })
 
-Deno.test('follow-up: condense rewrites the query; still grounded + verified', async () => {
+Deno.test('follow-up: embed is standalone + raw question when they differ', async () => {
   let seenRetrievalQ = ''
+  const question = 'and the cutoff for that?'
+  const standalone = 'PSS-10 cutoff score for the high severity band'
   const { deps } = makeDeps({
     getHistory: () =>
       Promise.resolve({
@@ -187,7 +189,7 @@ Deno.test('follow-up: condense rewrites the query; still grounded + verified', a
     },
     chat: (system: string) => {
       if (system === CONDENSE_SYSTEM)
-        return Promise.resolve('{"standalone":"PSS-10 cutoff score for the high severity band"}')
+        return Promise.resolve(`{"standalone":"${standalone}"}`)
       if (system.startsWith(ANSWER_SYSTEM))
         return Promise.resolve(
           '{"answer":"The high band starts at 27.","citations":[{"chunkId":"c1","page":1,"quote":"summing items"}],"abstained":false}',
@@ -197,10 +199,89 @@ Deno.test('follow-up: condense rewrites the query; still grounded + verified', a
       )
     },
   })
-  const r = await ask({ versionId: VID, sessionId: SID, question: 'and the cutoff for that?' }, deps)
-  assertEquals(seenRetrievalQ.includes('cutoff'), true) // used the condensed query, not the raw follow-up
+  const r = await ask({ versionId: VID, sessionId: SID, question }, deps)
+  assertEquals(seenRetrievalQ.includes(standalone), true)
+  assertEquals(seenRetrievalQ.includes(question), true)
+  assertEquals(seenRetrievalQ, `${standalone} ${question}`)
   assertEquals(r.abstained, false)
   assertEquals(r.kind, 'grounded')
+})
+
+Deno.test('follow-up: MCMI-shaped rewrite still keeps cutoff / severity in the embed', async () => {
+  let seenRetrievalQ = ''
+  const question = 'what are cut off scores and severity bands'
+  const standalone = 'MCMI-3 instrument purpose and uses'
+  const { deps } = makeDeps({
+    getHistory: () =>
+      Promise.resolve({
+        summary: '',
+        summaryThroughTurn: 0,
+        priorTurns: [priorTurn(1, 'What is this instrument used for?', 'A clinical inventory.')],
+      }),
+    embed: (text: string) => {
+      seenRetrievalQ = text
+      return Promise.resolve(new Array(384).fill(0))
+    },
+    chat: (system: string) => {
+      if (system === CONDENSE_SYSTEM)
+        return Promise.resolve(`{"standalone":"${standalone}"}`)
+      if (system.startsWith(ANSWER_SYSTEM))
+        return Promise.resolve(
+          '{"answer":"BR 75 and 85.","citations":[{"chunkId":"c1","page":1,"quote":"summing items"}],"abstained":false}',
+        )
+      return Promise.resolve(
+        '{"supported":true,"unsupportedClaims":[],"revisedAnswer":"BR 75 and 85."}',
+      )
+    },
+  })
+  const r = await ask({ versionId: VID, sessionId: SID, question }, deps)
+  assertEquals(seenRetrievalQ.includes(standalone), true)
+  assertEquals(seenRetrievalQ.includes('cut off'), true)
+  assertEquals(seenRetrievalQ.includes('severity'), true)
+  assertEquals(r.kind, 'grounded')
+})
+
+Deno.test('follow-up: standalone identical to the question is not appended twice', async () => {
+  let seenRetrievalQ = ''
+  const question = 'PSS-10 cutoff score for the high severity band'
+  const { deps } = makeDeps({
+    getHistory: () =>
+      Promise.resolve({
+        summary: '',
+        summaryThroughTurn: 0,
+        priorTurns: [priorTurn(1, 'What are the PSS-10 severity bands?', 'Low, moderate, high.')],
+      }),
+    embed: (text: string) => {
+      seenRetrievalQ = text
+      return Promise.resolve(new Array(384).fill(0))
+    },
+    chat: (system: string) => {
+      if (system === CONDENSE_SYSTEM)
+        return Promise.resolve(`{"standalone":"${question}"}`)
+      if (system.startsWith(ANSWER_SYSTEM))
+        return Promise.resolve(
+          '{"answer":"The high band starts at 27.","citations":[{"chunkId":"c1","page":1,"quote":"summing items"}],"abstained":false}',
+        )
+      return Promise.resolve(
+        '{"supported":true,"unsupportedClaims":[],"revisedAnswer":"The high band starts at 27."}',
+      )
+    },
+  })
+  await ask({ versionId: VID, sessionId: SID, question }, deps)
+  assertEquals(seenRetrievalQ, question)
+})
+
+Deno.test('first turn: embed is exactly the raw question (no condense, no append)', async () => {
+  let seenRetrievalQ = ''
+  const question = 'how is the PSS scored?'
+  const { deps } = makeDeps({
+    embed: (text: string) => {
+      seenRetrievalQ = text
+      return Promise.resolve(new Array(384).fill(0))
+    },
+  })
+  await ask({ versionId: VID, sessionId: SID, question }, deps)
+  assertEquals(seenRetrievalQ, question)
 })
 
 Deno.test('meta: condense returns __META__ -> answered from transcript, no retrieval/verify', async () => {
@@ -350,6 +431,33 @@ Deno.test('facts: getFacts null -> pre-facts behaviour (no chunks, no facts -> a
   const r = await ask({ versionId: VID, sessionId: SID, question: 'how many pages?' }, deps)
   assertEquals(r.abstained, true)
   assertEquals(r.kind, 'abstained')
+})
+
+Deno.test('facts: chunk wording includes chapter/heading count, page length, not-a-TOC caveat', async () => {
+  let seenUser = ''
+  const { deps } = makeDeps({
+    getFacts: () => Promise.resolve(FACTS),
+    chat: (system: string, user: string) => {
+      if (system.startsWith(ANSWER_SYSTEM)) seenUser = user
+      return Promise.resolve(
+        '{"answer":"This version is 3 pages.","citations":[{"chunkId":"__facts__","page":0,"quote":"Length: 3 pages"}],"abstained":false}',
+      )
+    },
+  })
+  await ask({ versionId: VID, sessionId: SID, question: 'how many pages is this manual?' }, deps)
+  assertEquals(seenUser.includes('Length: 3 pages'), true)
+  assertEquals(seenUser.includes('Sections: 2'), true)
+  assertEquals(seenUser.toLowerCase().includes('heading'), true)
+  assertEquals(seenUser.toLowerCase().includes('chapter'), true)
+  assertEquals(seenUser.toLowerCase().includes('not a publisher'), true)
+  assertEquals(seenUser.includes(FACTS_CHUNK_ID), true)
+})
+
+Deno.test('facts: ANSWER_SYSTEM routes catalog fields to DOCUMENT METADATA, not a synopsis', () => {
+  const s = ANSWER_SYSTEM.toLowerCase()
+  assertEquals(s.includes('__facts__') || s.includes('document metadata'), true)
+  assertEquals(s.includes('chapter'), true)
+  assertEquals(s.includes('what is this document about'), true)
 })
 
 // ── v1.5: model fallback reporting ───────────────────────────────────────────

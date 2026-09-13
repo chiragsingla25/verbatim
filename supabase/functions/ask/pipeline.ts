@@ -190,8 +190,11 @@ function factsChunk(f: DocFacts): RetrievedChunk {
     `${label}: ${v === null || v === '' ? 'not recorded' : v}`
   const body = [
     'DOCUMENT METADATA — catalog facts about this manual version (not a page of the manual).',
-    'Use this to answer questions about the document itself — its length, edition, year,',
-    `publisher, or which instrument it covers. Cite it as chunkId "${FACTS_CHUNK_ID}".`,
+    'For page count, heading/section/chapter count, edition, year, publisher, or which',
+    `instrument this version is, you MUST use this block and cite chunkId "${FACTS_CHUNK_ID}"`,
+    'when the field is recorded (not "not recorded"). Do not infer those counts from retrieved',
+    'pages. Chapters/sections are a heading count from ingest — not a publisher table of contents.',
+    'Do not treat this block as a synopsis; "what is this document about?" is not answered here.',
     line('Instrument', f.instrumentName),
     line('Version title', f.title),
     line('Edition', f.edition),
@@ -199,6 +202,7 @@ function factsChunk(f: DocFacts): RetrievedChunk {
     line('Publisher', f.publisher),
     line('Length', f.pageCount === null ? null : `${f.pageCount} pages`),
     `Sections: ${f.sectionCount}`,
+    'Chapters / sections = the Sections heading count above, not a publisher TOC.',
     ...(f.supersededByTitle ? [`Superseded by: ${f.supersededByTitle}`] : []),
   ].join('\n')
   return { chunkId: FACTS_CHUNK_ID, page: 0, section: 'metadata', content: body, tableRef: null, score: 0 }
@@ -286,7 +290,12 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<AnswerResult>
     )
     if (c) {
       if (c.standalone === '__META__') isMeta = true
-      else retrievalQuery = c.standalone
+      else {
+        // Keep the user's lexical terms in the embed (cutoff, severity, …). Rewrite-only
+        // dropped them on follow-ups after an instrument question (MCMI-3, 2026-09-13).
+        retrievalQuery =
+          c.standalone === question ? c.standalone : `${c.standalone} ${question}`
+      }
     }
   }
 

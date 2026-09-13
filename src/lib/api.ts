@@ -82,7 +82,7 @@ export async function ask(
         'content-type': 'application/json',
       },
       body: JSON.stringify({ versionId, question, sessionId, modelId }),
-      signal: AbortSignal.timeout(130_000),
+      signal: AbortSignal.timeout(145_000),
     })
   } catch (e) {
     if (e instanceof DOMException && e.name === 'TimeoutError') {
