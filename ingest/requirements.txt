@@ -7,6 +7,16 @@ docling==2.126.0
 sentence-transformers==6.0.1   # thenlper/gte-small, 384-dim
 transformers==5.16.1
 torch==2.14.0                  # CPU wheel from the extra index above
+# RapidOcrOptions(lang=["en"]) (ingest/parse.py) needs the onnxruntime backend for the
+# English recognition model -- RapidOCR downloads model weights from a live remote
+# registry at runtime (not bundled in this package), and a real ingest.yml run failed
+# with "ImportError: onnxruntime is not installed" after a run 21h earlier with these
+# SAME pins had used the torch engine successfully -- i.e. the registry's own English-
+# model backend availability changed under us, not our pinned deps. Installing both
+# backends is the defensive fix: resilient to either engine being the one RapidOCR's
+# catalog decides to require for a given language, not just whichever one happens to
+# work today.
+onnxruntime==1.30.0
 numpy==2.4.6
 psycopg[binary]==3.3.5
 pgvector==0.5.0
