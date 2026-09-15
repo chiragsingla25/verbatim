@@ -267,8 +267,7 @@ def run(job_id: str, version_id: str, object_path: str) -> None:
         # per-batch progress logging (ingest/parse.py) making a slow run observable instead
         # of an opaque timeout — so this cap is no longer about what CAN finish in time,
         # it's a sanity ceiling against a truly pathological upload (thousands of pages).
-        # 500 is well above any realistically-sized manual.
-        MAX_PAGES = 500
+        MAX_PAGES = 1000
         if n_pages > MAX_PAGES:
             fail_job(
                 conn,
